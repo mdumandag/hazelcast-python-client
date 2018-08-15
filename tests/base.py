@@ -31,9 +31,9 @@ class _Cluster(object):
 class HazelcastTestCase(unittest.TestCase):
     clients = []
 
-    def __init__(self, methodName):
-        unittest.TestCase.__init__(self, methodName)
-        self.logger = logging.getLogger(methodName)
+    def __init__(self, method_name):
+        unittest.TestCase.__init__(self, method_name)
+        self.logger = logging.getLogger(method_name)
 
     @staticmethod
     def create_rc():
@@ -76,6 +76,11 @@ class HazelcastTestCase(unittest.TestCase):
         self.assertEqual(event.merging_value, merging_value)
         self.assertEqual(event.old_value, old_value)
         self.assertEqual(event.number_of_affected_entries, number_of_affected_entries)
+
+    def assertDistributedObjectEvent(self, event, name, service_name, event_type):
+        self.assertEqual(name, event.name)
+        self.assertEqual(service_name, event.service_name)
+        self.assertEqual(event_type, event.event_type)
 
     def set_logging_level(self, level):
         logging.getLogger().setLevel(level)

@@ -5,6 +5,7 @@ from hazelcast.connection import ConnectionManager, Heartbeat
 from hazelcast.invocation import InvocationService, ListenerService
 from hazelcast.lifecycle import LifecycleService, LIFECYCLE_STATE_SHUTTING_DOWN, LIFECYCLE_STATE_SHUTDOWN
 from hazelcast.partition import PartitionService
+from hazelcast.protocol.codec import client_get_distributed_objects_codec
 from hazelcast.proxy import ProxyManager, MAP_SERVICE, QUEUE_SERVICE, LIST_SERVICE, SET_SERVICE, MULTI_MAP_SERVICE, \
     REPLICATED_MAP_SERVICE, ATOMIC_LONG_SERVICE, ATOMIC_REFERENCE_SERVICE, RINGBUFFER_SERIVCE, COUNT_DOWN_LATCH_SERVICE, \
     TOPIC_SERVICE, RELIABLE_TOPIC_SERVICE, SEMAPHORE_SERVICE, LOCK_SERVICE, ID_GENERATOR_SERVICE, \
@@ -49,6 +50,15 @@ class HazelcastClient(object):
             raise
         self.logger.info("Client started.")
 
+    def add_distributed_object_listener(self, listener_func):
+        """
+        Adds a listener which will be notified when a
+        new distributed object is created or destroyed.
+        :param listener_func: Function to be called when a distributed object is created or destroyed.
+        :return: (str), a registration id which is used as a key to remove the listener.
+        """
+        return self.proxy.add_distributed_object_listener(listener_func)
+
     def get_atomic_long(self, name):
         """
         Creates cluster-wide :class:`~hazelcast.proxy.atomic_long.AtomicLong`.
@@ -75,6 +85,18 @@ class HazelcastClient(object):
         :return: (:class:`~hazelcast.proxy.count_down_latch.CountDownLatch`), CountDownLatch proxy for the given name.
         """
         return self.proxy.get_or_create(COUNT_DOWN_LATCH_SERVICE, name)
+
+    def get_distributed_objects(self):
+        """
+        Returns all distributed objects such as; queue, map, set, list, topic, lock, multimap.
+        :return:(Sequence), List of instances created by Hazelcast.
+        """
+        request = client_get_distributed_objects_codec.encode_request()
+        to_object = self.serialization_service.to_object
+        future = self.invoker.invoke_on_random_target(request)
+        response = client_get_distributed_objects_codec.decode_response(future.result(), to_object)["response"]
+
+        return [self.proxy.get_or_create(doi.service_name, doi.name) for doi in response]
 
     def get_executor(self, name):
         """
@@ -208,6 +230,14 @@ class HazelcastClient(object):
         :return: (:class:`~hazelcast.transaction.Transaction`), new Transaction associated with the current thread.
         """
         return self.transaction_manager.new_transaction(timeout, durability, type)
+
+    def remove_distributed_object_listener(self, registration_id):
+        """
+        Removes the specified distributed object listener. Returns silently if there is no such listener added before.
+        :param registration_id: (str), id of registered listener.
+        :return: (bool), ``true`` if registration is removed, ``false`` otherwise.
+        """
+        return self.proxy.remove_distributed_object_listener(registration_id)
 
     def shutdown(self):
         """

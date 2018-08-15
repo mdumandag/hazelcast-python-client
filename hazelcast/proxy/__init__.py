@@ -1,6 +1,8 @@
-from hazelcast.protocol.codec import client_create_proxy_codec, client_destroy_proxy_codec
+from hazelcast.protocol.codec import client_create_proxy_codec, client_destroy_proxy_codec, \
+    client_add_distributed_object_listener_codec, client_remove_distributed_object_listener_codec
 from hazelcast.proxy.atomic_long import AtomicLong
 from hazelcast.proxy.atomic_reference import AtomicReference
+from hazelcast.proxy.base import DistributedObjectEvent
 from hazelcast.proxy.count_down_latch import CountDownLatch
 from hazelcast.proxy.executor import Executor
 from hazelcast.proxy.id_generator import IdGenerator
@@ -84,6 +86,26 @@ class ProxyManager(object):
             return True
         except KeyError:
             return False
+
+    def add_distributed_object_listener(self, listener_func):
+        is_smart = self._client.config.network_config.smart_routing
+        request = client_add_distributed_object_listener_codec.encode_request(is_smart)
+
+        def handle_distributed_object_event(**kwargs):
+            event = DistributedObjectEvent(**kwargs)
+            listener_func(event)
+
+        def event_handler(client_message):
+            return client_add_distributed_object_listener_codec.handle(client_message, handle_distributed_object_event)
+
+        def decode_add_listener(response):
+            return client_add_distributed_object_listener_codec.decode_response(response)["response"]
+
+        return self._client.listener.start_listening(request, event_handler, decode_add_listener)
+
+    def remove_distributed_object_listener(self, registration_id):
+        return self._client.listener.stop_listening(registration_id,
+                                                    client_remove_distributed_object_listener_codec.encode_request)
 
     def _find_next_proxy_address(self):
         # TODO: filter out lite members
