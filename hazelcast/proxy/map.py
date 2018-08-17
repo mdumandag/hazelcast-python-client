@@ -84,16 +84,24 @@ class Map(Proxy):
             request = map_add_entry_listener_to_key_with_predicate_codec.encode_request(self.name, key_data,
                                                                                         predicate_data, include_value,
                                                                                         flags, False)
+            handle = map_add_entry_listener_to_key_with_predicate_codec.handle
+            decode_response = map_add_entry_listener_to_key_with_predicate_codec.decode_response
         elif key and not predicate:
             key_data = self._to_data(key)
             request = map_add_entry_listener_to_key_codec.encode_request(self.name, key_data, include_value, flags,
                                                                          False)
+            handle = map_add_entry_listener_to_key_codec.handle
+            decode_response = map_add_entry_listener_to_key_codec.decode_response
         elif not key and predicate:
             predicate = self._to_data(predicate)
             request = map_add_entry_listener_with_predicate_codec.encode_request(self.name, predicate, include_value,
                                                                                  flags, False)
+            handle = map_add_entry_listener_with_predicate_codec.handle
+            decode_response = map_add_entry_listener_with_predicate_codec.decode_response
         else:
             request = map_add_entry_listener_codec.encode_request(self.name, include_value, flags, False)
+            handle = map_add_entry_listener_codec.handle
+            decode_response = map_add_entry_listener_codec.decode_response
 
         def handle_event_entry(**_kwargs):
             event = EntryEvent(self._to_object, **_kwargs)
@@ -114,8 +122,8 @@ class Map(Proxy):
             elif event.event_type == EntryEventType.expired:
                 expired_func(event)
 
-        return self._start_listening(request, lambda m: map_add_entry_listener_codec.handle(m, handle_event_entry),
-                                     lambda r: map_add_entry_listener_codec.decode_response(r)['response'])
+        return self._start_listening(request, lambda m: handle(m, handle_event_entry),
+                                     lambda r: decode_response(r)['response'])
 
     def add_index(self, attribute, ordered=False):
         """

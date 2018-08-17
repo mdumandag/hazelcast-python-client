@@ -1,4 +1,3 @@
-from hazelcast.serialization.bits import *
 from hazelcast.protocol.client_message import ClientMessage
 from hazelcast.protocol.custom_codec import *
 from hazelcast.util import ImmutableLazyDataList
@@ -35,6 +34,3 @@ def decode_response(client_message, to_object=None):
         response.append(response_item)
     parameters['response'] = ImmutableLazyDataList(response, to_object)
     return parameters
-
-
-

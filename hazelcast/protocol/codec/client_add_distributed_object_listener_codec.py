@@ -1,7 +1,5 @@
 from hazelcast.serialization.bits import *
 from hazelcast.protocol.client_message import ClientMessage
-from hazelcast.protocol.custom_codec import *
-from hazelcast.util import ImmutableLazyDataList
 from hazelcast.protocol.codec.client_message_type import *
 from hazelcast.protocol.event_response_const import *
 
@@ -42,4 +40,3 @@ def handle(client_message, handle_event_distributed_object=None, to_object=None)
         service_name = client_message.read_str()
         event_type = client_message.read_str()
         handle_event_distributed_object(name=name, service_name=service_name, event_type=event_type)
-

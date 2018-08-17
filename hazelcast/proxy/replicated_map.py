@@ -47,15 +47,23 @@ class ReplicatedMap(Proxy):
             request = replicated_map_add_entry_listener_to_key_with_predicate_codec.encode_request(self.name, key_data,
                                                                                                    predicate_data,
                                                                                                    False)
+            handle = replicated_map_add_entry_listener_to_key_with_predicate_codec.handle
+            decode_response = replicated_map_add_entry_listener_to_key_with_predicate_codec.decode_response
         elif key and not predicate:
             key_data = self._to_data(key)
             request = replicated_map_add_entry_listener_to_key_codec.encode_request(self.name, key_data, False)
+            handle = replicated_map_add_entry_listener_to_key_codec.handle
+            decode_response = replicated_map_add_entry_listener_to_key_codec.decode_response
         elif not key and predicate:
             predicate = self._to_data(predicate)
             request = replicated_map_add_entry_listener_with_predicate_codec.encode_request(self.name, predicate,
                                                                                             False)
+            handle = replicated_map_add_entry_listener_with_predicate_codec.handle
+            decode_response = replicated_map_add_entry_listener_with_predicate_codec.decode_response
         else:
             request = replicated_map_add_entry_listener_codec.encode_request(self.name, False)
+            handle = replicated_map_add_entry_listener_codec.handle
+            decode_response = replicated_map_add_entry_listener_codec.decode_response
 
         def handle_event_entry(**_kwargs):
             event = EntryEvent(self._to_object, **_kwargs)
@@ -70,11 +78,8 @@ class ReplicatedMap(Proxy):
             elif event.event_type == EntryEventType.clear_all and clear_all_func:
                 clear_all_func(event)
 
-        return self._start_listening(request,
-                                     lambda m: replicated_map_add_entry_listener_codec.handle(m,
-                                                                                              handle_event_entry),
-                                     lambda r: replicated_map_add_entry_listener_codec.decode_response(r)[
-                                         'response'])
+        return self._start_listening(request, lambda m: handle(m, handle_event_entry),
+                                     lambda r: decode_response(r)['response'])
 
     def clear(self):
         """

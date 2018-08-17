@@ -29,9 +29,13 @@ class MultiMap(Proxy):
             request = multi_map_add_entry_listener_to_key_codec.encode_request(name=self.name, key=key_data,
                                                                                include_value=include_value,
                                                                                local_only=False)
+            handle = multi_map_add_entry_listener_to_key_codec.handle
+            decode_response = multi_map_add_entry_listener_to_key_codec.decode_response
         else:
             request = multi_map_add_entry_listener_codec.encode_request(name=self.name, include_value=include_value,
                                                                         local_only=False)
+            handle = multi_map_add_entry_listener_codec.handle
+            decode_response = multi_map_add_entry_listener_codec.decode_response
 
         def handle_event_entry(**_kwargs):
             event = EntryEvent(self._to_object, **_kwargs)
@@ -42,11 +46,8 @@ class MultiMap(Proxy):
             elif event.event_type == EntryEventType.clear_all and clear_all_func:
                 clear_all_func(event)
 
-        return self._start_listening(request,
-                                     lambda m: multi_map_add_entry_listener_codec.handle(m,
-                                                                                         handle_event_entry),
-                                     lambda r: multi_map_add_entry_listener_codec.decode_response(r)[
-                                         'response'])
+        return self._start_listening(request, lambda m: handle(m, handle_event_entry),
+                                     lambda r: decode_response(r)['response'])
 
     def contains_key(self, key):
         """
