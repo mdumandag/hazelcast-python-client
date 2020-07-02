@@ -175,7 +175,7 @@ class ImmediateFuture(Future):
     def __init__(self, result):
         self._result = result
 
-    def set_exception(self, exception):
+    def set_exception(self, exception, traceback=None):
         raise NotImplementedError()
 
     def set_result(self, result):

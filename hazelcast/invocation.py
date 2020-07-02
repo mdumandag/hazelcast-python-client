@@ -1,5 +1,4 @@
 import logging
-import threading
 import time
 import functools
 
@@ -18,8 +17,8 @@ class Invocation(object):
     sent_connection = None
     timer = None
 
-    def __init__(self, invocation_service, request, partition_id=-1, address=None, connection=None, event_handler=None):
-        self._event = threading.Event()
+    def __init__(self, invocation_service, request, partition_id=-1,
+                 address=None, connection=None, event_handler=None, response_handler=None):
         self._invocation_timeout = invocation_service.invocation_timeout
         self.timeout = self._invocation_timeout + time.time()
         self.address = address
@@ -28,6 +27,7 @@ class Invocation(object):
         self.request = request
         self.future = Future()
         self.event_handler = event_handler
+        self.response_handler = response_handler
 
     def has_connection(self):
         return self.connection is not None
@@ -41,6 +41,8 @@ class Invocation(object):
     def set_response(self, response):
         if self.timer:
             self.timer.cancel()
+        if self.response_handler:
+            response = self.response_handler(response)
         self.future.set_result(response)
 
     def set_exception(self, exception, traceback=None):
@@ -85,17 +87,17 @@ class InvocationService(object):
         return self.invoke(Invocation(self, message, connection=connection, event_handler=event_handler),
                            ignore_heartbeat)
 
-    def invoke_on_partition(self, message, partition_id, invocation_timeout=None):
-        invocation = Invocation(self, message, partition_id=partition_id)
+    def invoke_on_partition(self, message, partition_id, invocation_timeout=None, response_handler=None):
+        invocation = Invocation(self, message, partition_id=partition_id, response_handler=response_handler)
         if invocation_timeout:
             invocation.set_timeout(invocation_timeout)
         return self.invoke(invocation)
 
-    def invoke_on_random_target(self, message):
-        return self.invoke(Invocation(self, message))
+    def invoke_on_random_target(self, message, response_handler=None):
+        return self.invoke(Invocation(self, message, response_handler=response_handler))
 
-    def invoke_on_target(self, message, address):
-        return self.invoke(Invocation(self, message, address=address))
+    def invoke_on_target(self, message, address, response_handler=None):
+        return self.invoke(Invocation(self, message, address=address, response_handler=response_handler))
 
     def invoke_smart(self, invocation, ignore_heartbeat=False):
         if invocation.has_connection():

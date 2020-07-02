@@ -3,6 +3,7 @@ import struct
 import sys
 import threading
 import time
+import io
 
 from hazelcast.exception import AuthenticationError
 from hazelcast.future import ImmediateFuture, ImmediateExceptionFuture
@@ -256,6 +257,57 @@ class Heartbeat(object):
                 callback(connection)
 
 
+header = struct.Struct('<i')
+
+
+class Reader(object):
+    def __init__(self, builder):
+        self.buf = io.BytesIO()
+        self.frame_size = 0
+        self.builder = builder
+        self.bytes_read = 0
+        self.bytes_written = 0
+
+    def read(self, data):
+        self.buf.seek(self.bytes_written)
+        self.buf.write(data)
+        self.bytes_written += len(data)
+
+    def process(self):
+        while True:
+            if not self.frame_size:
+                self.read_frame_size()
+
+            if not self.frame_size or self.length < self.frame_size:
+                return
+            else:
+                self.buf.seek(self.bytes_read)
+                data = self.buf.read(self.frame_size)
+                self.bytes_read += self.frame_size
+                msg = ClientMessage(memoryview(data))
+                self.builder.on_message(msg)
+                self.reset()
+
+    def read_frame_size(self):
+        if self.length < INT_SIZE_IN_BYTES:
+            return
+
+        buf = self.buf.getvalue()
+        self.frame_size = header.unpack_from(buf, self.bytes_read)[0]
+
+    def reset(self):
+        if self.bytes_written == self.bytes_read:
+            self.buf.seek(0)
+            self.buf.truncate()
+            self.bytes_written = 0
+            self.bytes_read = 0
+        self.frame_size = 0
+
+    @property
+    def length(self):
+        return self.bytes_written - self.bytes_read
+
+
 class Connection(object):
     """
     Connection object which stores connection related information and operations.
@@ -273,12 +325,12 @@ class Connection(object):
         self.logger = logging.getLogger("HazelcastClient.Connection[%s](%s:%d)" % (self.id, address.host, address.port))
         self._connection_closed_callback = connection_closed_callback
         self._builder = ClientMessageBuilder(message_callback)
-        self._read_buffer = bytearray()
         self.last_read_in_seconds = 0
         self.last_write_in_seconds = 0
         self.start_time_in_seconds = 0
         self.server_version_str = ""
         self.server_version = 0
+        self._reader = Reader(self._builder)
 
     def live(self):
         """
@@ -299,19 +351,6 @@ class Connection(object):
 
         message.add_flag(BEGIN_END_FLAG)
         self.write(message.buffer)
-
-    def receive_message(self):
-        """
-        Receives a message from this connection.
-        """
-        # split frames
-        while len(self._read_buffer) >= INT_SIZE_IN_BYTES:
-            frame_length = struct.unpack_from(FMT_LE_INT, self._read_buffer, 0)[0]
-            if frame_length > len(self._read_buffer):
-                return
-            message = ClientMessage(memoryview(self._read_buffer)[:frame_length])
-            self._read_buffer = self._read_buffer[frame_length:]
-            self._builder.on_message(message)
 
     def write(self, data):
         """

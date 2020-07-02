@@ -42,7 +42,7 @@ class AsyncoreReactor(object):
         Future._threading_locals.is_reactor_thread = True
         while self._is_live:
             try:
-                asyncore.loop(count=1, timeout=0.01, map=self._map)
+                asyncore.loop(count=1, timeout=0.01, use_poll=True, map=self._map)
                 self._check_timers()
             except select.error as err:
                 # TODO: parse error type to catch only error "9"
@@ -191,16 +191,24 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
         self.logger.debug("Connected to %s", self._address, extra=self._logger_extras)
 
     def handle_read(self):
-        self._read_buffer.extend(self.recv(self.read_buffer_size))
-        self.last_read_in_seconds = time.time()
-        self.receive_message()
+        reader = self._reader
+        while True:
+            data = self.recv(self.read_buffer_size)
+            reader.read(data)
+            self.last_read_in_seconds = time.time()
+            if len(data) < self.read_buffer_size:
+                break
+
+        if reader.length:
+            reader.process()
 
     def handle_write(self):
-        with self._write_lock:
+        while True:
             try:
                 data = self._write_queue.popleft()
             except IndexError:
                 return
+
             sent = self.send(data)
             self.last_write_in_seconds = time.time()
             self.sent_protocol_bytes = True
@@ -224,18 +232,7 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
         return not self._closed and self.sent_protocol_bytes
 
     def write(self, data):
-        # if write queue is empty, send the data right away, otherwise add to queue
-        if len(self._write_queue) == 0 and self._write_lock.acquire(False):
-            try:
-                sent = self.send(data)
-                self.last_write_in_seconds = time.time()
-                if sent < len(data):
-                    self.logger.info("Adding to queue", extra=self._logger_extras)
-                    self._write_queue.appendleft(data[sent:])
-            finally:
-                self._write_lock.release()
-        else:
-            self._write_queue.append(data)
+        self._write_queue.append(data)
 
     def writable(self):
         return len(self._write_queue) > 0

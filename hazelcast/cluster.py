@@ -180,9 +180,14 @@ class ClusterService(object):
         def handler(m):
             client_add_membership_listener_codec.handle(m, self._handle_member, self._handle_member_list)
 
-        response = self._client.invoker.invoke_on_connection(request, connection, True, handler).result()
-        registration_id = client_add_membership_listener_codec.decode_response(response)["response"]
-        self.logger.debug("Registered membership listener with ID " + registration_id, extra=self._logger_extras)
+        future = self._client.invoker.invoke_on_connection(request, connection, True, handler)
+
+        def log_listener_registration(f):
+            registration_id = client_add_membership_listener_codec.decode_response(f.result())["response"]
+            self.logger.debug("Registered membership listener with ID " + registration_id, extra=self._logger_extras)
+
+        future.add_done_callback(log_listener_registration)
+        future.result()
         self._initial_list_fetched.wait()
 
     def _handle_member(self, member, event_type):

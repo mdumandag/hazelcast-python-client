@@ -6,7 +6,7 @@ if __name__ == "__main__":
     my_map = client.get_map("my-map")
 
     # Fill the map
-    my_map.put("1", "Tokyo")
+    my_map.set("1", "Tokyo")
     my_map.put("2", "Paris")
     my_map.put("3", "Istanbul")
 

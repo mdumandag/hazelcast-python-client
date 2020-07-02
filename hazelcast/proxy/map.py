@@ -859,7 +859,7 @@ class Map(Proxy):
 
     def _set_internal(self, key_data, value_data, ttl):
         return self._encode_invoke_on_key(map_set_codec, key_data, key=key_data, value=value_data, thread_id=thread_id(),
-                                          ttl=to_millis(ttl))
+                                          ttl=to_millis(ttl), response_handler=lambda f, c, t: None)
 
     def _try_remove_internal(self, key_data, timeout):
         return self._encode_invoke_on_key(map_try_remove_codec, key_data, key=key_data, thread_id=thread_id(),

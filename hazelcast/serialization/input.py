@@ -15,7 +15,6 @@ class _ObjectDataInput(ObjectDataInput):
         self._is_big_endian = is_big_endian
         self._pos = offset
         self._size = len(buff)
-        self._respect_bytearrays = False if serialization_service is None else serialization_service.properties.get_bool(ClientProperties.SERIALIZATION_INPUT_RETURNS_BYTEARRAY)
         # Local cache struct formats according to endianness
         self._FMT_INT8 = FMT_BE_INT8 if self._is_big_endian else FMT_LE_INT8
         self._FMT_UINT8 = FMT_BE_UINT8 if self._is_big_endian else FMT_LE_UINT8
@@ -86,23 +85,9 @@ class _ObjectDataInput(ObjectDataInput):
         length = self.read_int()
         if length == NULL_ARRAY_LENGTH:
             return None
-        result = bytearray()
-        for i in range(0, length):
-            _first_byte = self.read_byte() & 0xFF
-            b = _first_byte >> 4
-            if 0 <= b <= 7:
-                result.append(_first_byte)
-                continue
-            if 12 <= b <= 13:
-                result.append(_first_byte)
-                result.append(self.read_byte() & 0xFF)
-                continue
-            if b == 14:
-                result.append(_first_byte)
-                result.append(self.read_byte() & 0xFF)
-                result.append(self.read_byte() & 0xFF)
-                continue
-            raise UnicodeDecodeError("Malformed utf-8 content")
+        result = bytearray(length)
+        if length > 0:
+            self.read_into(result, 0, length)
         return result.decode("utf-8")
 
     def read_byte_array(self):
@@ -113,10 +98,7 @@ class _ObjectDataInput(ObjectDataInput):
         if length > 0:
             self.read_into(result, 0, length)
 
-        if self._respect_bytearrays:
-            return result
-
-        return list(result)
+        return result
 
     def read_boolean_array(self):
         return self._read_array_fnc(self.read_boolean)
