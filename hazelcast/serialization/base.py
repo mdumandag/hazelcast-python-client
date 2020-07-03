@@ -51,7 +51,7 @@ class BaseSerializationService(object):
         self._is_big_endian = is_big_endian
         self._active = True
 
-    def to_data(self, obj, partitioning_strategy=None):
+    def to_data(self, obj):
         """
         Serialize the input object into byte array representation
         :param obj: input object
@@ -67,9 +67,10 @@ class BaseSerializationService(object):
         out = self._create_data_output()
         try:
             serializer = self._registry.serializer_for(obj)
-            partitioning_hash = self._calculate_partitioning_hash(obj, partitioning_strategy)
+            #partitioning_hash = self._calculate_partitioning_hash(obj, partitioning_strategy)
 
-            out.write_int_big_endian(partitioning_hash)
+            #out.write_int_big_endian(partitioning_hash)
+            out.set_position(4)
             out.write_int_big_endian(serializer.get_type_id())
             serializer.write(out, obj)
             return Data(out.to_byte_array())

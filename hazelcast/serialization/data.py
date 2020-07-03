@@ -1,5 +1,3 @@
-from struct import unpack_from
-
 from hazelcast.hash import murmur_hash3_x86_32
 from hazelcast.serialization.bits import *
 from hazelcast.serialization.serialization_const import *
@@ -35,7 +33,7 @@ class Data(object):
         """
         if self.total_size() == 0:
             return CONSTANT_TYPE_NULL
-        return unpack_from(FMT_BE_INT, self._buffer, TYPE_OFFSET)[0]
+        return FMT_BE_INT.unpack_from(self._buffer, TYPE_OFFSET)[0]
 
     def total_size(self):
         """
@@ -62,8 +60,8 @@ class Data(object):
 
         :return: partition hash
         """
-        if self.has_partition_hash():
-            return unpack_from(FMT_BE_INT, self._buffer, PARTITION_HASH_OFFSET)[0]
+        #if self.has_partition_hash():
+        #    return unpack_from(FMT_BE_INT, self._buffer, PARTITION_HASH_OFFSET)[0]
         return self.hash_code()
 
     def is_portable(self):
@@ -73,16 +71,6 @@ class Data(object):
         :return: (bool), ``true`` if source object is Portable, ``false`` otherwise.
         """
         return CONSTANT_TYPE_PORTABLE == self.get_type()
-
-    def has_partition_hash(self):
-        """
-        Determines whether this Data has partition hash or not.
-
-        :return: (bool), ``true`` if Data has partition hash, ``false`` otherwise.
-        """
-        return self._buffer is not None \
-               and len(self._buffer) >= HEAP_DATA_OVERHEAD \
-               and unpack_from(FMT_BE_INT, self._buffer, PARTITION_HASH_OFFSET)[0] != 0
 
     def hash_code(self):
         """
