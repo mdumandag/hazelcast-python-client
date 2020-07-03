@@ -150,13 +150,12 @@ class ListenerService(object):
     def start(self):
         self._client.connection_manager.add_listener(self.connection_added, self.connection_removed)
 
-    def handle_client_message(self, message):
-        correlation_id = message.get_correlation_id()
-        if correlation_id not in self._event_handlers:
+    def handle_client_message(self, message, correlation_id):
+        event_handler = self._event_handlers.get(correlation_id, None)
+        if not event_handler:
             self.logger.warning("Got event message with unknown correlation id: %s", message, extra=self._logger_extras)
-        else:
-            event_handler = self._event_handlers.get(correlation_id)
-            event_handler(message)
+            return
+        event_handler(message)
 
     def add_event_handler(self, correlation_id, event_handler):
         self._event_handlers[correlation_id] = event_handler

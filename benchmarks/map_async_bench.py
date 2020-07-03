@@ -8,21 +8,15 @@ from hazelcast import six
 from hazelcast.six.moves import range
 import yappi
 import cProfile, pstats, io
-from pstats import SortKey
 
 sys.path.append(dirname(dirname(dirname(__file__))))
 
 import hazelcast
 
-# yappi.set_clock_type("cpu") # Use set_clock_type("wall") for wall time
-# yappi.start()
 
-
-# pr = cProfile.Profile()
-# pr.enable()
 
 def do_benchmark():
-    REQ_COUNT = 20000
+    REQ_COUNT = 50000
     ENTRY_COUNT = 10 * 1000
     VALUE_SIZE = 1000
     GET_PERCENTAGE = 40
@@ -52,20 +46,34 @@ def do_benchmark():
                 elif operation < GET_PERCENTAGE + PUT_PERCENTAGE:
                     my_map.set(key, VALUE).add_done_callback(self.incr)
                 else:
-                    my_map.remove(key).add_done_callback(self.incr)
+                    my_map.delete(key).add_done_callback(self.incr)
 
     t = Test()
     start = time.time()
+
+    #pr = cProfile.Profile()
+    #pr.enable()
+
+    # yappi.set_clock_type("cpu") # Use set_clock_type("wall") for wall time
+    # yappi.start()
+
     t.run()
     t.event.wait()
 
     # yappi.stop()
-    # yappi.get_func_stats().print_all()
+    # yappi.get_func_stats().print_all(columns={
+    #         0: ("name", 80),
+    #         1: ("ncall", 10),
+    #         2: ("tsub", 10),
+    #         3: ("ttot", 10),
+    #         4: ("tavg", 10)
+    #     })
     # yappi.get_thread_stats().print_all()
+
 
     # pr.disable()
     # s = io.StringIO()
-    # sortby = SortKey.CUMULATIVE
+    # sortby = 'cumulative'
     # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
     # ps.print_stats()
     # print(s.getvalue())

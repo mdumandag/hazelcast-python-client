@@ -54,9 +54,11 @@ class ClientMessage(object):
         if buff:
             self.buffer = buff
             self._read_index = 0
+            self._offset = self.get_data_offset()
         else:
             self.buffer = bytearray(HEADER_SIZE + payload_size)
             self.set_data_offset(HEADER_SIZE)
+            self._offset = HEADER_SIZE
             self._write_index = 0
         self._retryable = False
 
@@ -107,10 +109,10 @@ class ClientMessage(object):
         return self
 
     def _write_offset(self):
-        return self.get_data_offset() + self._write_index
+        return self._offset + self._write_index
 
     def _read_offset(self):
-        return self.get_data_offset() + self._read_index
+        return self._offset + self._read_index
 
     # PAYLOAD
     def append_byte(self, val):
@@ -144,7 +146,8 @@ class ClientMessage(object):
         # length
         self.append_int(length)
         # copy content
-        self.buffer[self._write_offset(): self._write_offset() + length] = arr[:]
+        offset = self._write_offset()
+        self.buffer[offset: offset + length] = arr
         self._write_index += length
 
     def append_tuple(self, entry_tuple):
@@ -177,7 +180,8 @@ class ClientMessage(object):
 
     def read_byte_array(self):
         length = self.read_int()
-        result = bytearray(self.buffer[self._read_offset(): self._read_offset() + length])
+        offset = self._read_offset()
+        result = bytearray(self.buffer[offset: offset + length])
         self._read_index += length
         return result
 

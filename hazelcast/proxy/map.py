@@ -851,7 +851,7 @@ class Map(Proxy):
                                           thread_id=thread_id())
 
     def _delete_internal(self, key_data):
-        return self._encode_invoke_on_key(map_delete_codec, key_data, key=key_data, thread_id=thread_id())
+        return self._encode_invoke_on_key(map_delete_codec, key_data, key=key_data, thread_id=thread_id(), response_handler=lambda f, c, t: None)
 
     def _put_internal(self, key_data, value_data, ttl):
         return self._encode_invoke_on_key(map_put_codec, key_data, key=key_data, value=value_data, thread_id=thread_id(),

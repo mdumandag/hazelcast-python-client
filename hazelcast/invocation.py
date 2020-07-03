@@ -201,12 +201,12 @@ class InvocationService(object):
     def _handle_client_message(self, message):
         correlation_id = message.get_correlation_id()
         if message.has_flags(LISTENER_FLAG):
-            self._listener_service.handle_client_message(message)
+            self._listener_service.handle_client_message(message, correlation_id)
             return
-        if correlation_id not in self._pending:
+        invocation = self._pending.pop(correlation_id, None)
+        if not invocation:
             self.logger.warning("Got message with unknown correlation id: %s", message, extra=self._logger_extras)
             return
-        invocation = self._pending.pop(correlation_id)
 
         if message.get_message_type() == EXCEPTION_MESSAGE_TYPE:
             error = create_exception(ErrorCodec(message))

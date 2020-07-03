@@ -1,6 +1,7 @@
 import logging
 
 from hazelcast.future import make_blocking
+from hazelcast.invocation import Invocation
 from hazelcast.partition import string_partition_strategy
 from hazelcast.util import enum, thread_id
 from hazelcast import six
@@ -25,11 +26,13 @@ class Proxy(object):
     """
     Provides basic functionality for Hazelcast Proxies.
     """
+
     def __init__(self, client, service_name, name):
         self.service_name = service_name
         self.name = name
         self.partition_key = string_partition_strategy(self.name)
         self._client = client
+        self.invoker = self._client.invoker
         self.logger = logging.getLogger("HazelcastClient.%s(%s)" % (type(self).__name__, name))
         self._to_object = client.serialization_service.to_object
         self._to_data = client.serialization_service.to_data
@@ -54,20 +57,30 @@ class Proxy(object):
 
     def _encode_invoke(self, codec, response_handler=default_response_handler, **kwargs):
         request = codec.encode_request(name=self.name, **kwargs)
-        return self._client.invoker.invoke_on_random_target(request, response_handler=lambda f: response_handler(f, codec, self._to_object))
+        return self.invoker.invoke_on_random_target(request, response_handler=lambda f: response_handler(f, codec,
+                                                                                                         self._to_object))
 
     def _encode_invoke_on_target(self, codec, _address, response_handler=default_response_handler, **kwargs):
         request = codec.encode_request(name=self.name, **kwargs)
-        return self._client.invoker.invoke_on_target(request, _address, response_handler=lambda f: response_handler(f, codec, self._to_object))
+        return self.invoker.invoke_on_target(request, _address,
+                                             response_handler=lambda f: response_handler(f, codec, self._to_object))
 
-    def _encode_invoke_on_key(self, codec, key_data, invocation_timeout=None, **kwargs):
+    def _encode_invoke_on_key(self, codec, key_data, invocation_timeout=None, response_handler=default_response_handler,
+                              **kwargs):
         partition_id = self._client.partition_service.get_partition_id(key_data)
-        return self._encode_invoke_on_partition(codec, partition_id, invocation_timeout=invocation_timeout, **kwargs)
+
+        request = codec.encode_request(name=self.name, **kwargs)
+        invocation = Invocation(self.invoker, request, partition_id,
+                                response_handler=lambda f: response_handler(f, codec, self._to_object))
+        if invocation_timeout:
+            invocation.set_timeout(invocation_timeout)
+        return self.invoker.invoke(invocation)
 
     def _encode_invoke_on_partition(self, codec, _partition_id, response_handler=default_response_handler,
                                     invocation_timeout=None, **kwargs):
         request = codec.encode_request(name=self.name, **kwargs)
-        return self._client.invoker.invoke_on_partition(request, _partition_id, invocation_timeout, response_handler=lambda f: response_handler(f, codec, self._to_object))
+        return self.invoker.invoke_on_partition(request, _partition_id, invocation_timeout,
+                                                response_handler=lambda f: response_handler(f, codec, self._to_object))
 
     def blocking(self):
         """
@@ -81,6 +94,7 @@ class PartitionSpecificProxy(Proxy):
     """
     Provides basic functionality for Partition Specific Proxies.
     """
+
     def __init__(self, client, service_name, name):
         super(PartitionSpecificProxy, self).__init__(client, service_name, name)
         self._partition_id = self._client.partition_service.get_partition_id(self.partition_key)
@@ -88,13 +102,15 @@ class PartitionSpecificProxy(Proxy):
     def _encode_invoke(self, codec, response_handler=default_response_handler, invocation_timeout=None, **kwargs):
         return super(PartitionSpecificProxy, self)._encode_invoke_on_partition(codec, self._partition_id,
                                                                                response_handler=response_handler,
-                                                                               invocation_timeout=invocation_timeout, **kwargs)
+                                                                               invocation_timeout=invocation_timeout,
+                                                                               **kwargs)
 
 
 class TransactionalProxy(object):
     """
     Provides an interface for all transactional distributed objects.
     """
+
     def __init__(self, name, transaction):
         self.name = name
         self.transaction = transaction
@@ -104,7 +120,7 @@ class TransactionalProxy(object):
     def _encode_invoke(self, codec, response_handler=default_response_handler, **kwargs):
         request = codec.encode_request(name=self.name, txn_id=self.transaction.id, thread_id=thread_id(), **kwargs)
         return self.transaction.client.invoker.invoke_on_connection(request, self.transaction.connection).continue_with(
-                response_handler, codec, self._to_object)
+            response_handler, codec, self._to_object)
 
     def __repr__(self):
         return '%s(name="%s")' % (type(self).__name__, self.name)
@@ -119,6 +135,7 @@ class ItemEvent(object):
     """
     Map Item event.
     """
+
     def __init__(self, name, item_data, event_type, member, to_object):
         self.name = name
         self._item_data = item_data
@@ -136,6 +153,7 @@ class EntryEvent(object):
     """
     Map Entry event.
     """
+
     def __init__(self, to_object, key, old_value, value, merging_value, event_type, uuid,
                  number_of_affected_entries):
         self._key_data = key
@@ -178,6 +196,7 @@ class TopicMessage(object):
     """
     Topic message.
     """
+
     def __init__(self, name, message_data, publish_time, member, to_object):
         self.name = name
         self._message_data = message_data
