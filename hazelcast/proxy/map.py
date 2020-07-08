@@ -1,6 +1,7 @@
 import itertools
 
 from hazelcast.future import combine_futures, ImmediateFuture
+from hazelcast.invocation import Invocation
 from hazelcast.near_cache import NearCache
 from hazelcast.protocol.codec import map_add_entry_listener_codec, map_add_entry_listener_to_key_codec, \
     map_add_entry_listener_with_predicate_codec, map_add_entry_listener_to_key_with_predicate_codec, \
@@ -829,7 +830,11 @@ class Map(Proxy):
         return self._encode_invoke_on_key(map_contains_key_codec, key_data, key=key_data, thread_id=thread_id())
 
     def _get_internal(self, key_data):
-        return self._encode_invoke_on_key(map_get_codec, key_data, key=key_data, thread_id=thread_id())
+        partition_id = self._client.partition_service.get_partition_id(key_data)
+
+        request = map_get_codec.encode_request(self.name, key_data, thread_id())
+        invocation = Invocation(self.invoker, request, partition_id, response_handler=lambda f: map_get_codec.decode_response(f, self._to_object))
+        return self.invoker.invoke(invocation)
 
     def _get_all_internal(self, partition_to_keys, futures=None):
         if futures is None:
@@ -851,15 +856,21 @@ class Map(Proxy):
                                           thread_id=thread_id())
 
     def _delete_internal(self, key_data):
-        return self._encode_invoke_on_key(map_delete_codec, key_data, key=key_data, thread_id=thread_id(), response_handler=lambda f, c, t: None)
+        partition_id = self._client.partition_service.get_partition_id(key_data)
+        request = map_delete_codec.encode_request(self.name, key_data, thread_id())
+        invocation = Invocation(self.invoker, request, partition_id, response_handler=lambda f: None)
+        return self.invoker.invoke(invocation)
 
     def _put_internal(self, key_data, value_data, ttl):
         return self._encode_invoke_on_key(map_put_codec, key_data, key=key_data, value=value_data, thread_id=thread_id(),
                                           ttl=to_millis(ttl))
 
     def _set_internal(self, key_data, value_data, ttl):
-        return self._encode_invoke_on_key(map_set_codec, key_data, key=key_data, value=value_data, thread_id=thread_id(),
-                                          ttl=to_millis(ttl), response_handler=lambda f, c, t: None)
+        partition_id = self._client.partition_service.get_partition_id(key_data)
+
+        request = map_set_codec.encode_request(self.name, key_data, value_data, thread_id(), ttl)
+        invocation = Invocation(self.invoker, request, partition_id, response_handler=lambda f: None)
+        return self.invoker.invoke(invocation)
 
     def _try_remove_internal(self, key_data, timeout):
         return self._encode_invoke_on_key(map_try_remove_codec, key_data, key=key_data, thread_id=thread_id(),

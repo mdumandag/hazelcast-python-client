@@ -1,6 +1,7 @@
 import asyncore
 import errno
 import logging
+import os
 import select
 import socket
 import sys
@@ -19,6 +20,67 @@ try:
     import ssl
 except ImportError:
     ssl = None
+
+_dispatcher_map = {}
+
+
+class _FileWrapper(object):
+    def __init__(self, fd):
+        self._fd = fd
+
+    def fileno(self):
+        return self._fd
+
+    def close(self):
+        os.close(self._fd)
+
+    def getsockopt(self, level, optname, buflen=None):
+        if level == socket.SOL_SOCKET and optname == socket.SO_ERROR and not buflen:
+            return 0
+        raise NotImplementedError("Only asyncore specific behaviour implemented.")
+
+
+class _AbstractWaker(asyncore.dispatcher):
+
+    def __init__(self):
+        asyncore.dispatcher.__init__(self, map=_dispatcher_map)
+        self._awake = False
+
+    def writable(self):
+        return False
+
+    def wake(self):
+        raise NotImplementedError("wake")
+
+
+_OS_PAGE_SIZE = 4096
+
+
+class _PipedWaker(_AbstractWaker):
+    def __init__(self):
+        _AbstractWaker.__init__(self)
+        self._read_fd, self._write_fd = os.pipe()
+
+    def wake(self):
+        if not self._awake:
+            os.write(self._write_fd, b'x')
+            self._awake = True
+
+    def handle_read(self):
+        while len(os.read(self._read_fd, _OS_PAGE_SIZE)) == _OS_PAGE_SIZE:
+            pass
+        self._awake = False
+
+
+class _SocketedWaker(_AbstractWaker):
+
+    def __init__(self):
+        _AbstractWaker.__init__(self)
+        self._writer = socket.socket()
+        self._writer.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+
+
 
 
 class AsyncoreReactor(object):
@@ -84,6 +146,7 @@ class AsyncoreReactor(object):
             return
         self._is_live = False
         for connection in list(self._map.values()):
+            print("shutdowon", connection)
             try:
                 connection.close(HazelcastError("Client is shutting down"))
             except OSError as connection:

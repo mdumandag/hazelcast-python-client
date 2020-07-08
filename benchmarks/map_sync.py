@@ -19,7 +19,7 @@ import hazelcast
 sentinel = object()
 
 def do_benchmark():
-    REQ_COUNT = 100000
+    REQ_COUNT = 5000
     ENTRY_COUNT = 10 * 1000
     VALUE_SIZE = 1000
     GET_PERCENTAGE = 40
@@ -30,39 +30,19 @@ def do_benchmark():
     class Test(object):
 
         def __init__(self):
-            self.num_started = count()
-            self.num_finished = count()
-            self.event = threading.Event()
             self.my_map = client.get_map("default")
             self.my_map.clear().result()
 
         def run(self):
-            futures = queue.Queue(maxsize=1001)
-
-            for i in range(REQ_COUNT):
-                if i > 0 and i % 1000 == 0:
-                    # clear the existing queue
-                    while True:
-                        try:
-                            futures.get_nowait().result()
-                        except queue.Empty:
-                            break
-
+            for _ in range(REQ_COUNT):
                 key = int(random.random() * ENTRY_COUNT)
                 operation = int(random.random() * 100)
                 if operation < GET_PERCENTAGE:
-                    future = self.my_map.get(key)
+                    self.my_map.get(key).result()
                 elif operation < GET_PERCENTAGE + PUT_PERCENTAGE:
-                    future = self.my_map.set(key, VALUE)
+                    self.my_map.set(key, VALUE).result()
                 else:
-                    future = self.my_map.delete(key)
-                futures.put_nowait(future)
-
-            while True:
-                try:
-                    futures.get_nowait().result()
-                except queue.Empty:
-                    break
+                    self.my_map.delete(key).result()
 
     t = Test()
     start = time.time()
@@ -70,12 +50,12 @@ def do_benchmark():
     # pr = cProfile.Profile()
     # pr.enable()
 
-    # yappi.set_clock_type("cpu") # Use set_clock_type("wall") for wall time
+    # yappi.set_clock_type("wall") # Use set_clock_type("wall") for wall time
     # yappi.start()
 
     t.run()
-    #t.event.wait()
 
+    #
     # pr.disable()
     # s = io.StringIO()
     # sortby = 'cumulative'
@@ -101,3 +81,4 @@ def do_benchmark():
 
 if __name__ == '__main__':
     do_benchmark()
+    time.sleep(100)

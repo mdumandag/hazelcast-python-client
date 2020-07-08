@@ -28,5 +28,5 @@ if __name__ == "__main__":
     print("Random key: {}".format(key))
     my_map.contains_key(key).add_done_callback(contains_callback)
 
-    time.sleep(10)
+    time.sleep(1)
     client.shutdown()

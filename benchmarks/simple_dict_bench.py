@@ -15,7 +15,7 @@ sys.path.append(dirname(dirname(dirname(__file__))))
 
 def do_benchmark():
     MAP_NAME = "default"
-    THREAD_COUNT = 1
+    THREAD_COUNT = 10
     ENTRY_COUNT = 10 * 1000
     VALUE_SIZE = 100
     GET_PERCENTAGE = 40
