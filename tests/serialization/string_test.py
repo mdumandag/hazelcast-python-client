@@ -21,9 +21,9 @@ TEST_DATA_BYTES_ALL = TEST_DATA_ALL.encode("utf8")
 def to_data_byte(inp, length):
     # 4 byte partition hashcode -  4 byte of type id - 4 byte string length
     bf = bytearray(12)
-    struct.pack_into(FMT_BE_INT, bf, 0, 0)
-    struct.pack_into(FMT_BE_INT, bf, 4, CONSTANT_TYPE_STRING)
-    struct.pack_into(FMT_BE_INT, bf, 8, length)
+    FMT_BE_INT.pack_into(bf, 0, 0)
+    FMT_BE_INT.pack_into(bf, 4, CONSTANT_TYPE_STRING)
+    FMT_BE_INT.pack_into(bf, 8, length)
     return bf + bytearray(inp.encode("utf-8"))
 
 
@@ -52,7 +52,7 @@ class StringSerializationTestCase(unittest.TestCase):
         self.assertEqual(expected, actual)
 
     def test_utf8_decode(self):
-        data_byte = to_data_byte(TEST_DATA_ALL, len(TEST_DATA_ALL))
+        data_byte = to_data_byte(TEST_DATA_ALL, len(TEST_DATA_ALL.encode()))
         data = Data(buff=data_byte)
         actual_ascii = self.service.to_object(data)
         self.assertEqual(TEST_DATA_ALL, actual_ascii)

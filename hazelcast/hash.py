@@ -1,8 +1,8 @@
-import math
+from hazelcast.serialization.bits import FMT_LE_UINT
 from hazelcast.six.moves import range
 
 
-def murmur_hash3_x86_32(data, length, seed=0x01000193):
+def murmur_hash3_x86_32(data, length):
     """
     murmur3 hash function to determine partition
 
@@ -14,7 +14,7 @@ def murmur_hash3_x86_32(data, length, seed=0x01000193):
     """
     nblocks = int(length / 4)
 
-    h1 = seed
+    h1 = 0x01000193
 
     c1 = 0xcc9e2d51
     c2 = 0x1b873593
@@ -22,10 +22,7 @@ def murmur_hash3_x86_32(data, length, seed=0x01000193):
     # body
     for block_start in range(0, nblocks * 4, 4):
         # ??? big endian?
-        k1 = data[block_start + 11] << 24 | \
-             data[block_start + 10] << 16 | \
-             data[block_start + 9] << 8 | \
-             data[block_start + 8]
+        k1 = FMT_LE_UINT.unpack_from(data, block_start + 8)[0]
 
         k1 = c1 * k1 & 0xFFFFFFFF
         k1 = (k1 << 15 | k1 >> 17) & 0xFFFFFFFF  # inlined ROTL32

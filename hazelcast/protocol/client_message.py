@@ -23,7 +23,6 @@ Any request parameter, response or event data will be carried in the payload.
 
 """
 import binascii
-import struct
 import socket
 import errno
 
@@ -64,48 +63,48 @@ class ClientMessage(object):
 
     # HEADER ACCESSORS
     def get_correlation_id(self):
-        return struct.unpack_from(FMT_LE_LONG, self.buffer, CORRELATION_ID_FIELD_OFFSET)[0]
+        return FMT_LE_LONG.unpack_from(self.buffer, CORRELATION_ID_FIELD_OFFSET)[0]
 
     def set_correlation_id(self, val):
-        struct.pack_into(FMT_LE_LONG, self.buffer, CORRELATION_ID_FIELD_OFFSET, val)
+        FMT_LE_LONG.pack_into(self.buffer, CORRELATION_ID_FIELD_OFFSET, val)
         return self
 
     def get_partition_id(self):
-        return struct.unpack_from(FMT_LE_INT, self.buffer, PARTITION_ID_FIELD_OFFSET)[0]
+        return FMT_LE_INT.unpack_from(self.buffer, PARTITION_ID_FIELD_OFFSET)[0]
 
     def set_partition_id(self, val):
-        struct.pack_into(FMT_LE_INT, self.buffer, PARTITION_ID_FIELD_OFFSET, val)
+        FMT_LE_INT.pack_into(self.buffer, PARTITION_ID_FIELD_OFFSET, val)
         return self
 
     def get_message_type(self):
-        return struct.unpack_from(FMT_LE_UINT16, self.buffer, TYPE_FIELD_OFFSET)[0]
+        return FMT_LE_UINT16.unpack_from(self.buffer, TYPE_FIELD_OFFSET)[0]
 
     def set_message_type(self, val):
-        struct.pack_into(FMT_LE_UINT16, self.buffer, TYPE_FIELD_OFFSET, val)
+        FMT_LE_UINT16.pack_into(self.buffer, TYPE_FIELD_OFFSET, val)
         return self
 
     def get_flags(self):
-        return struct.unpack_from(FMT_LE_UINT8, self.buffer, FLAGS_FIELD_OFFSET)[0]
+        return FMT_LE_UINT8.unpack_from(self.buffer, FLAGS_FIELD_OFFSET)[0]
 
     def set_flags(self, val):
-        struct.pack_into(FMT_LE_UINT8, self.buffer, FLAGS_FIELD_OFFSET, val)
+        FMT_LE_UINT8.pack_into(self.buffer, FLAGS_FIELD_OFFSET, val)
         return self
 
     def has_flags(self, flags):
         return self.get_flags() & flags
 
     def get_frame_length(self):
-        return struct.unpack_from(FMT_LE_INT, self.buffer, FRAME_LENGTH_FIELD_OFFSET)[0]
+        return FMT_LE_INT.unpack_from(self.buffer, FRAME_LENGTH_FIELD_OFFSET)[0]
 
     def set_frame_length(self, val):
-        struct.pack_into(FMT_LE_INT, self.buffer, FRAME_LENGTH_FIELD_OFFSET, val)
+        FMT_LE_INT.pack_into(self.buffer, FRAME_LENGTH_FIELD_OFFSET, val)
         return self
 
     def get_data_offset(self):
-        return struct.unpack_from(FMT_LE_UINT16, self.buffer, DATA_OFFSET_FIELD_OFFSET)[0]
+        return FMT_LE_UINT16.unpack_from(self.buffer, DATA_OFFSET_FIELD_OFFSET)[0]
 
     def set_data_offset(self, val):
-        struct.pack_into(FMT_LE_UINT16, self.buffer, DATA_OFFSET_FIELD_OFFSET, val)
+        FMT_LE_UINT16.pack_into(self.buffer, DATA_OFFSET_FIELD_OFFSET, val)
         return self
 
     def _write_offset(self):
@@ -116,7 +115,7 @@ class ClientMessage(object):
 
     # PAYLOAD
     def append_byte(self, val):
-        struct.pack_into(FMT_LE_UINT8, self.buffer, self._write_offset(), val)
+        FMT_LE_UINT8.pack_into(self.buffer, self._write_offset(), val)
         self._write_index += BYTE_SIZE_IN_BYTES
         return self
 
@@ -124,12 +123,12 @@ class ClientMessage(object):
         return self.append_byte(1 if val else 0)
 
     def append_int(self, val):
-        struct.pack_into(FMT_LE_INT, self.buffer, self._write_offset(), val)
+        FMT_LE_INT.pack_into(self.buffer, self._write_offset(), val)
         self._write_index += INT_SIZE_IN_BYTES
         return self
 
     def append_long(self, val):
-        struct.pack_into(FMT_LE_LONG, self.buffer, self._write_offset(), val)
+        FMT_LE_LONG.pack_into(self.buffer, self._write_offset(), val)
         self._write_index += LONG_SIZE_IN_BYTES
         return self
 
@@ -156,7 +155,7 @@ class ClientMessage(object):
 
     # PAYLOAD READ
     def _read_from_buff(self, fmt, size):
-        val = struct.unpack_from(fmt, self.buffer, self._read_offset())
+        val = fmt.unpack_from(self.buffer, self._read_offset())
         self._read_index += size
         return val[0]
 

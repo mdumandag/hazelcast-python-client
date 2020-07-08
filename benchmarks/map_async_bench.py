@@ -51,14 +51,21 @@ def do_benchmark():
     t = Test()
     start = time.time()
 
-    #pr = cProfile.Profile()
-    #pr.enable()
+    # pr = cProfile.Profile()
+    # pr.enable()
 
     # yappi.set_clock_type("cpu") # Use set_clock_type("wall") for wall time
     # yappi.start()
 
     t.run()
     t.event.wait()
+
+    # pr.disable()
+    # s = io.StringIO()
+    # sortby = 'cumulative'
+    # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    # ps.print_stats()
+    # print(s.getvalue())
 
     # yappi.stop()
     # yappi.get_func_stats().print_all(columns={
@@ -71,12 +78,7 @@ def do_benchmark():
     # yappi.get_thread_stats().print_all()
 
 
-    # pr.disable()
-    # s = io.StringIO()
-    # sortby = 'cumulative'
-    # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-    # ps.print_stats()
-    # print(s.getvalue())
+
 
     time_taken = time.time() - start
     six.print_("Took {} seconds for {} requests".format(time_taken, REQ_COUNT))

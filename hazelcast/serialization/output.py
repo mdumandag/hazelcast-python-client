@@ -44,7 +44,7 @@ class _ObjectDataOutput(ObjectDataOutput):
 
     def write_short(self, val):
         self._ensure_available(SHORT_SIZE_IN_BYTES)
-        struct.pack_into(self._FMT_SHORT, self._buffer, self._pos, val)
+        self._FMT_SHORT.pack_into(self._buffer, self._pos, val)
         self._pos += SHORT_SIZE_IN_BYTES
 
     def write_char(self, val):
@@ -54,29 +54,29 @@ class _ObjectDataOutput(ObjectDataOutput):
     def write_int(self, val, position=None):
         self._ensure_available(INT_SIZE_IN_BYTES)
         if position is None:
-            struct.pack_into(self._FMT_INT, self._buffer, self._pos, val)
+            self._FMT_INT.pack_into(self._buffer, self._pos, val)
             self._pos += INT_SIZE_IN_BYTES
         else:
-            struct.pack_into(self._FMT_INT, self._buffer, position, val)
+            self._FMT_INT.pack_into(self._buffer, position, val)
 
     def write_int_big_endian(self, val):
         self._ensure_available(INT_SIZE_IN_BYTES)
-        struct.pack_into(FMT_BE_INT, self._buffer, self._pos, val)
+        FMT_BE_INT.pack_into(self._buffer, self._pos, val)
         self._pos += INT_SIZE_IN_BYTES
 
     def write_long(self, val):
         self._ensure_available(LONG_SIZE_IN_BYTES)
-        struct.pack_into(self._FMT_LONG, self._buffer, self._pos, val)
+        self._FMT_LONG.pack_into(self._buffer, self._pos, val)
         self._pos += LONG_SIZE_IN_BYTES
 
     def write_float(self, val):
         self._ensure_available(FLOAT_SIZE_IN_BYTES)
-        struct.pack_into(self._FMT_FLOAT, self._buffer, self._pos, val)
+        self._FMT_FLOAT.pack_into(self._buffer, self._pos, val)
         self._pos += FLOAT_SIZE_IN_BYTES
 
     def write_double(self, val):
         self._ensure_available(DOUBLE_SIZE_IN_BYTES)
-        struct.pack_into(self._FMT_DOUBLE, self._buffer, self._pos, val)
+        self._FMT_DOUBLE.pack_into(self._buffer, self._pos, val)
         self._pos += DOUBLE_SIZE_IN_BYTES
 
     def write_utf(self, val):
