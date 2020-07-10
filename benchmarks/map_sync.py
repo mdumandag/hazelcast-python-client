@@ -19,7 +19,7 @@ import hazelcast
 sentinel = object()
 
 def do_benchmark():
-    REQ_COUNT = 5000
+    REQ_COUNT = 10000
     ENTRY_COUNT = 10 * 1000
     VALUE_SIZE = 1000
     GET_PERCENTAGE = 40

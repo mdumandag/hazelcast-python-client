@@ -21,8 +21,6 @@ try:
 except ImportError:
     ssl = None
 
-_dispatcher_map = {}
-
 
 class _FileWrapper(object):
     def __init__(self, fd):
@@ -42,9 +40,9 @@ class _FileWrapper(object):
 
 class _AbstractWaker(asyncore.dispatcher):
 
-    def __init__(self):
-        asyncore.dispatcher.__init__(self, map=_dispatcher_map)
-        self._awake = False
+    def __init__(self, map):
+        asyncore.dispatcher.__init__(self, map=map)
+        self.awake = False
 
     def writable(self):
         return False
@@ -54,20 +52,20 @@ class _AbstractWaker(asyncore.dispatcher):
 
 
 class _PipedWaker(_AbstractWaker):
-    def __init__(self):
-        _AbstractWaker.__init__(self)
+    def __init__(self, map):
+        _AbstractWaker.__init__(self, map)
         self._read_fd, self._write_fd = os.pipe()
         self.set_socket(_FileWrapper(self._read_fd))
 
     def wake(self):
-        if not self._awake:
+        if not self.awake:
+            self.awake = True
             os.write(self._write_fd, b"x")
-            self._awake = True
 
     def handle_read(self):
         while len(os.read(self._read_fd, 4096)) == 4096:
             pass
-        self._awake = False
+        self.awake = False
 
     def close(self):
         _AbstractWaker.close(self)
@@ -76,8 +74,8 @@ class _PipedWaker(_AbstractWaker):
 
 class _SocketedWaker(_AbstractWaker):
 
-    def __init__(self):
-        _AbstractWaker.__init__(self)
+    def __init__(self, map):
+        _AbstractWaker.__init__(self, map)
         self._writer = socket.socket()
         self._writer.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
@@ -97,20 +95,18 @@ class _SocketedWaker(_AbstractWaker):
         self._reader.settimeout(0)
 
     def wake(self):
-        if not self._awake:
+        if not self.awake:
             try:
                 self._writer.send(b"x")
-                self._awake = True
+                self.awake = True
             except (IOError, socket.error, ValueError):
                 pass
 
     def handle_read(self):
         try:
-            while True:
-                result = self._reader.recv(1024)
-                if not result:
-                    break
-            self._awake = False
+            while len(self._reader.recv(1024)) == 1024:
+                pass
+            self.awake = False
         except (IOError, socket.error):
             pass
 
@@ -122,13 +118,20 @@ class _SocketedWaker(_AbstractWaker):
 class _AbstractLoop(object):
     logger = logging.getLogger("HazelcastClient.AsyncoreReactor")
 
-    def __init__(self, logger_extras):
+    def __init__(self, map, logger_extras):
+        self._map = map
         self._logger_extras = logger_extras
         self._timers = queue.PriorityQueue()
-        self._loop_lock = threading.Lock()
         self._is_live = False
+        self._thread = None
 
-    def loop(self):
+    def start(self):
+        self._is_live = True
+        self._thread = threading.Thread(target=self._loop, name="hazelcast-reactor")
+        self._thread.daemon = True
+        self._thread.start()
+
+    def _loop(self):
         self.logger.debug("Starting Reactor Thread", extra=self._logger_extras)
         Future._threading_locals.is_reactor_thread = True
         while self._is_live:
@@ -196,28 +199,68 @@ class _AbstractLoop(object):
         raise NotImplementedError("shutdown")
 
 
-class AsyncoreReactor(object):
-    _thread = None
-    _is_live = False
+class _WakeableLoop(_AbstractLoop):
+    _waker_class = _PipedWaker if os.name != 'nt' else _SocketedWaker
 
-    def __init__(self, logger_extras=None):
-        self._logger_extras = logger_extras
-        self._timers = queue.PriorityQueue()
-        self._map = {}
+    def __init__(self, map, logger_extras):
+        _AbstractLoop.__init__(self, map, logger_extras)
+        self.waker = _WakeableLoop._waker_class(map)
 
-    def start(self):
-        self._is_live = True
-        self._thread = threading.Thread(target=self._loop, name="hazelcast-reactor")
-        self._thread.daemon = True
-        self._thread.start()
+    def check_loop(self):
+        assert not self.waker.awake
+        self.wake_loop()
+        assert self.waker.awake
+        self.run_loop()
+        assert not self.waker.awake
 
-    def add_timer(self, delay, callback):
-        return self.add_timer_absolute(delay + time.time(), callback)
+    def run_loop(self):
+        asyncore.loop(timeout=0.1, use_poll=True, map=self._map, count=1)
+
+    def wake_loop(self):
+        self.waker.wake()
 
     def shutdown(self):
         if not self._is_live:
             return
+
         self._is_live = False
+        self._thread.join()
+
+        for connection in list(self._map.values()):
+            if connection is self.waker:
+                continue
+
+            try:
+                connection.close(HazelcastError("Client is shutting down"))
+            except OSError as connection:
+                if connection.args[0] == socket.EBADF:
+                    pass
+                else:
+                    raise
+
+        self.waker.close()
+        self._map.clear()
+
+
+class _BusyWaitLoop(_AbstractLoop):
+    def check_loop(self):
+        pass
+
+    def run_loop(self):
+        if not self._map:
+            time.sleep(0.005)
+        asyncore.loop(timeout=0.01, use_poll=True, map=self._map, count=1)
+
+    def wake_loop(self):
+        pass
+
+    def shutdown(self):
+        if not self._is_live:
+            return
+
+        self._is_live = False
+        self._thread.join()
+
         for connection in list(self._map.values()):
             try:
                 connection.close(HazelcastError("Client is shutting down"))
@@ -226,25 +269,52 @@ class AsyncoreReactor(object):
                     pass
                 else:
                     raise
+
         self._map.clear()
-        self._thread.join()
+
+
+class AsyncoreReactor(object):
+    def __init__(self, logger_extras):
+        self._logger_extras = logger_extras
+        self.map = {}
+        loop = None
+        try:
+            loop = _WakeableLoop(self.map, logger_extras)
+            loop.check_loop()
+        except:
+            if loop:
+                loop.shutdown()
+                loop = _BusyWaitLoop(self.map, logger_extras)
+        self._loop = loop
+
+    def start(self):
+        self._loop.start()
+
+    def add_timer(self, delay, callback):
+        return self._loop.add_timer(delay, callback)
+
+    def wake_loop(self):
+        self._loop.wake_loop()
+
+    def shutdown(self):
+        self._loop.shutdown()
 
     def new_connection(self, address, connect_timeout, socket_options, connection_closed_callback, message_callback,
                        network_config):
-        return AsyncoreConnection(self._map, address, connect_timeout, socket_options,
+        return AsyncoreConnection(self, address, connect_timeout, socket_options,
                                   connection_closed_callback, message_callback, network_config, self._logger_extras)
-
 
 
 class AsyncoreConnection(Connection, asyncore.dispatcher):
     sent_protocol_bytes = False
     read_buffer_size = BUFFER_SIZE
 
-    def __init__(self, map, address, connect_timeout, socket_options, connection_closed_callback,
+    def __init__(self, reactor, address, connect_timeout, socket_options, connection_closed_callback,
                  message_callback, network_config, logger_extras=None):
-        asyncore.dispatcher.__init__(self, map=map)
+        asyncore.dispatcher.__init__(self, map=reactor.map)
         Connection.__init__(self, address, connection_closed_callback, message_callback, logger_extras)
 
+        self._reactor = reactor
         self._write_lock = threading.Lock()
         self._write_queue = deque()
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -354,6 +424,7 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
 
     def write(self, data):
         self._write_queue.append(data)
+        self._reactor.wake_loop()
 
     def writable(self):
         return len(self._write_queue) > 0
