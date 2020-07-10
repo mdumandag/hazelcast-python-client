@@ -19,8 +19,7 @@ class Invocation(object):
 
     def __init__(self, invocation_service, request, partition_id=-1,
                  address=None, connection=None, event_handler=None, response_handler=None):
-        self._invocation_timeout = invocation_service.invocation_timeout
-        self.timeout = self._invocation_timeout + time.time()
+        self.timeout = invocation_service.invocation_timeout
         self.address = address
         self.connection = connection
         self.partition_id = partition_id
@@ -51,11 +50,10 @@ class Invocation(object):
         self.future.set_exception(exception, traceback)
 
     def set_timeout(self, timeout):
-        self._invocation_timeout = timeout
-        self.timeout = self._invocation_timeout + time.time()
+        self.timeout = timeout
 
     def on_timeout(self):
-        self.set_exception(TimeoutError("Request timed out after %d seconds." % self._invocation_timeout))
+        self.set_exception(TimeoutError("Request timed out after %d seconds." % self.timeout))
 
 
 class InvocationService(object):
@@ -179,7 +177,7 @@ class InvocationService(object):
         message.set_partition_id(invocation.partition_id)
         self._pending[correlation_id] = invocation
         if not invocation.timer:
-            invocation.timer = self._client.reactor.add_timer_absolute(invocation.timeout, invocation.on_timeout)
+            invocation.timer = self._client.reactor.add_timer(invocation.timeout, invocation.on_timeout)
 
         if invocation.event_handler is not None:
             self._listener_service.add_event_handler(correlation_id, invocation.event_handler)

@@ -37,7 +37,7 @@ class _FileWrapper(object):
     def getsockopt(self, level, optname, buflen=None):
         if level == socket.SOL_SOCKET and optname == socket.SO_ERROR and not buflen:
             return 0
-        raise NotImplementedError("Only asyncore specific behaviour implemented.")
+        raise NotImplementedError("Only asyncore specific behaviour is implemented.")
 
 
 class _AbstractWaker(asyncore.dispatcher):
@@ -53,23 +53,25 @@ class _AbstractWaker(asyncore.dispatcher):
         raise NotImplementedError("wake")
 
 
-_OS_PAGE_SIZE = 4096
-
-
 class _PipedWaker(_AbstractWaker):
     def __init__(self):
         _AbstractWaker.__init__(self)
         self._read_fd, self._write_fd = os.pipe()
+        self.set_socket(_FileWrapper(self._read_fd))
 
     def wake(self):
         if not self._awake:
-            os.write(self._write_fd, b'x')
+            os.write(self._write_fd, b"x")
             self._awake = True
 
     def handle_read(self):
-        while len(os.read(self._read_fd, _OS_PAGE_SIZE)) == _OS_PAGE_SIZE:
+        while len(os.read(self._read_fd, 4096)) == 4096:
             pass
         self._awake = False
+
+    def close(self):
+        _AbstractWaker.close(self)
+        os.close(self._write_fd)
 
 
 class _SocketedWaker(_AbstractWaker):
@@ -79,34 +81,61 @@ class _SocketedWaker(_AbstractWaker):
         self._writer = socket.socket()
         self._writer.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
+        a = socket.socket()
+        a.bind(("127.0.0.1", 0))
+        a.listen(1)
+        addr = a.getsockname()
+
+        try:
+            self._writer.connect(addr)
+            self._reader, _ = a.accept()
+        finally:
+            a.close()
+
+        self.set_socket(self._reader)
+        self._writer.settimeout(0)
+        self._reader.settimeout(0)
+
+    def wake(self):
+        if not self._awake:
+            try:
+                self._writer.send(b"x")
+                self._awake = True
+            except (IOError, socket.error, ValueError):
+                pass
+
+    def handle_read(self):
+        try:
+            while True:
+                result = self._reader.recv(1024)
+                if not result:
+                    break
+            self._awake = False
+        except (IOError, socket.error):
+            pass
+
+    def close(self):
+        _AbstractWaker.close(self)
+        self._writer.close()
 
 
-
-
-class AsyncoreReactor(object):
-    _thread = None
-    _is_live = False
+class _AbstractLoop(object):
     logger = logging.getLogger("HazelcastClient.AsyncoreReactor")
 
-    def __init__(self, logger_extras=None):
+    def __init__(self, logger_extras):
         self._logger_extras = logger_extras
         self._timers = queue.PriorityQueue()
-        self._map = {}
+        self._loop_lock = threading.Lock()
+        self._is_live = False
 
-    def start(self):
-        self._is_live = True
-        self._thread = threading.Thread(target=self._loop, name="hazelcast-reactor")
-        self._thread.daemon = True
-        self._thread.start()
-
-    def _loop(self):
+    def loop(self):
         self.logger.debug("Starting Reactor Thread", extra=self._logger_extras)
         Future._threading_locals.is_reactor_thread = True
         while self._is_live:
             try:
-                asyncore.loop(count=1, timeout=0.01, use_poll=True, map=self._map)
+                self.run_loop()
                 self._check_timers()
-            except select.error as err:
+            except select.error:
                 # TODO: parse error type to catch only error "9"
                 self.logger.warning("Connection closed by server", extra=self._logger_extras)
                 pass
@@ -116,6 +145,12 @@ class AsyncoreReactor(object):
                 return
         self.logger.debug("Reactor Thread exited. %s" % self._timers.qsize(), extra=self._logger_extras)
         self._cleanup_all_timers()
+
+    def add_timer(self, delay, callback):
+        timer = Timer(delay + time.time(), callback, self._cleanup_timer)
+        self._timers.put_nowait((timer.end, timer))
+        self.wake_loop()
+        return timer
 
     def _check_timers(self):
         now = time.time()
@@ -133,10 +168,48 @@ class AsyncoreReactor(object):
             else:
                 return
 
-    def add_timer_absolute(self, timeout, callback):
-        timer = Timer(timeout, callback, self._cleanup_timer)
-        self._timers.put_nowait((timer.end, timer))
-        return timer
+    def _cleanup_timer(self, timer):
+        try:
+            self.logger.debug("Cancel timer %s" % timer, extra=self._logger_extras)
+            self._timers.queue.remove((timer.end, timer))
+        except ValueError:
+            pass
+
+    def _cleanup_all_timers(self):
+        while not self._timers.empty():
+            try:
+                _, timer = self._timers.get_nowait()
+                timer.timer_ended_cb()
+            except queue.Empty:
+                return
+
+    def check_loop(self):
+        raise NotImplementedError("check_loop")
+
+    def run_loop(self):
+        raise NotImplementedError("run_loop")
+
+    def wake_loop(self):
+        raise NotImplementedError("wake_loop")
+
+    def shutdown(self):
+        raise NotImplementedError("shutdown")
+
+
+class AsyncoreReactor(object):
+    _thread = None
+    _is_live = False
+
+    def __init__(self, logger_extras=None):
+        self._logger_extras = logger_extras
+        self._timers = queue.PriorityQueue()
+        self._map = {}
+
+    def start(self):
+        self._is_live = True
+        self._thread = threading.Thread(target=self._loop, name="hazelcast-reactor")
+        self._thread.daemon = True
+        self._thread.start()
 
     def add_timer(self, delay, callback):
         return self.add_timer_absolute(delay + time.time(), callback)
@@ -146,7 +219,6 @@ class AsyncoreReactor(object):
             return
         self._is_live = False
         for connection in list(self._map.values()):
-            print("shutdowon", connection)
             try:
                 connection.close(HazelcastError("Client is shutting down"))
             except OSError as connection:
@@ -162,20 +234,6 @@ class AsyncoreReactor(object):
         return AsyncoreConnection(self._map, address, connect_timeout, socket_options,
                                   connection_closed_callback, message_callback, network_config, self._logger_extras)
 
-    def _cleanup_timer(self, timer):
-        try:
-            self.logger.debug("Cancel timer %s" % timer, extra=self._logger_extras)
-            self._timers.queue.remove((timer.end, timer))
-        except ValueError:
-            pass
-
-    def _cleanup_all_timers(self):
-        while not self._timers.empty():
-            try:
-                _, timer = self._timers.get_nowait()
-                timer.timer_ended_cb()
-            except queue.Empty:
-                return
 
 
 class AsyncoreConnection(Connection, asyncore.dispatcher):
