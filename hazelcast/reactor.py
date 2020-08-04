@@ -152,7 +152,6 @@ class _AbstractLoop(object):
     def add_timer(self, delay, callback):
         timer = Timer(delay + time.time(), callback, self._cleanup_timer)
         self._timers.put_nowait((timer.end, timer))
-        self.wake_loop()
         return timer
 
     def _check_timers(self):

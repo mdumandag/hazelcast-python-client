@@ -3,10 +3,7 @@ import threading
 
 if __name__ == "__main__":
     client = hazelcast.HazelcastClient()
-    print(threading.enumerate())
-    client2 = hazelcast.HazelcastClient()
-    print(threading.enumerate())
-    my_map = client.get_map("my-map")
+    my_map = client.get_map("my-map").blocking()
 
     # Fill the map
     my_map.set("1", "c")
