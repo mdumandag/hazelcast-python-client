@@ -33,12 +33,12 @@ class _EventRegistration(object):
 class ListenerService(object):
     logger = logging.getLogger("HazelcastClient.ListenerService")
 
-    def __init__(self, client):
+    def __init__(self, client, logger_extras):
         self._client = client
         self._connection_manager = client.connection_manager
         self._invocation_service = None
-        self._is_smart = client.config.network.smart_routing
-        self._logger_extras = {"client_name": client.name, "cluster_name": client.config.cluster_name}
+        self._is_smart = client.config.smart_routing
+        self._logger_extras = logger_extras
         self._active_registrations = {}  # Dict of user_registration_id, ListenerRegistration
         self._registration_lock = threading.RLock()
         self._event_handlers = {}

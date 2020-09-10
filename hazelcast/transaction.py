@@ -46,9 +46,9 @@ class TransactionManager(object):
     """
     logger = logging.getLogger("HazelcastClient.TransactionManager")
 
-    def __init__(self, client):
+    def __init__(self, client, logger_extras):
         self._client = client
-        self._logger_extras = {"client_name": client.name, "cluster_name": client.config.cluster_name}
+        self._logger_extras = logger_extras
 
     def _connect(self):
         for count in range(0, RETRY_COUNT):

@@ -1,3 +1,5 @@
+from hazelcast.config import _IndexConfig, _IndexUtil, IndexType, QueryConstants, \
+    UniqueKeyTransformation
 from hazelcast.util import TimeUnit, calculate_version
 from unittest import TestCase
 
@@ -46,3 +48,70 @@ class VersionUtilTest(TestCase):
         self.assertEqual(109902, calculate_version("10.99.2-SNAPSHOT"))
         self.assertEqual(109930, calculate_version("10.99.30-SNAPSHOT"))
         self.assertEqual(109900, calculate_version("10.99-RC1"))
+
+
+class IndexUtilTest(TestCase):
+    def test_with_no_attributes(self):
+        config = _IndexConfig()
+
+        with self.assertRaises(ValueError):
+            _IndexUtil.validate_and_normalize("", config)
+
+    def test_with_too_many_attributes(self):
+        attributes = ["attr_%s" % i for i in range(512)]
+        config = _IndexConfig(attributes=attributes)
+
+        with self.assertRaises(ValueError):
+            _IndexUtil.validate_and_normalize("", config)
+
+    def test_with_composite_bitmap_indexes(self):
+        config = _IndexConfig(attributes=["attr1", "attr2"], type=IndexType.BITMAP)
+
+        with self.assertRaises(ValueError):
+            _IndexUtil.validate_and_normalize("", config)
+
+    def test_canonicalize_attribute_name(self):
+        config = _IndexConfig(attributes=["this.x.y.z", "a.b.c"])
+        normalized = _IndexUtil.validate_and_normalize("", config)
+        self.assertEqual("x.y.z", normalized.attributes[0])
+        self.assertEqual("a.b.c", normalized.attributes[1])
+
+    def test_duplicate_attributes(self):
+        invalid_attributes = [
+            ["a", "b", "a"],
+            ["a", "b", " a"],
+            [" a", "b", "a"],
+            ["this.a", "b", "a"],
+            ["this.a ", "b", " a"],
+            ["this.a", "b", "this.a"],
+            ["this.a ", "b", " this.a"],
+            [" this.a", "b", "a"],
+        ]
+
+        for attributes in invalid_attributes:
+            with self.assertRaises(ValueError):
+                config = _IndexConfig(attributes=attributes)
+                _IndexUtil.validate_and_normalize("", config)
+
+    def test_normalized_name(self):
+        config = _IndexConfig(None, IndexType.SORTED, ["attr"])
+        normalized = _IndexUtil.validate_and_normalize("map", config)
+        self.assertEqual("map_sorted_attr", normalized.name)
+
+        config = _IndexConfig("test", IndexType.BITMAP, ["attr"])
+        normalized = _IndexUtil.validate_and_normalize("map", config)
+        self.assertEqual("test", normalized.name)
+
+        config = _IndexConfig(None, IndexType.HASH, ["this.attr2.x"])
+        normalized = _IndexUtil.validate_and_normalize("map2", config)
+        self.assertEqual("map2_hash_attr2.x", normalized.name)
+
+    def test_with_bitmap_indexes(self):
+        bio = {
+            "unique_key": QueryConstants.THIS_ATTRIBUTE_NAME,
+            "unique_key_transformation": UniqueKeyTransformation.RAW
+        }
+        config = _IndexConfig(type=IndexType.BITMAP, attributes=["attr"], bitmap_index_options=bio)
+        normalized = _IndexUtil.validate_and_normalize("map", config)
+        self.assertEqual(bio["unique_key"], normalized.bitmap_index_options.unique_key)
+        self.assertEqual(bio["unique_key_transformation"], normalized.bitmap_index_options.unique_key_transformation)

@@ -1,16 +1,12 @@
-import time
-
 from hazelcast import HazelcastClient
 from hazelcast.core import Address
 from tests.base import HazelcastTestCase
-from hazelcast.config import ClientConfig, ClientProperties
-from tests.util import configure_logging, open_connection_to_address, random_string, wait_for_partition_table
+from tests.util import open_connection_to_address, wait_for_partition_table
 
 
 class HeartbeatTest(HazelcastTestCase):
     @classmethod
     def setUpClass(cls):
-        configure_logging()
         cls.rc = cls.create_rc()
 
     @classmethod
@@ -20,13 +16,9 @@ class HeartbeatTest(HazelcastTestCase):
     def setUp(self):
         self.cluster = self.create_cluster(self.rc)
         self.member = self.rc.startMember(self.cluster.id)
-        self.config = ClientConfig()
-        self.config.cluster_name = self.cluster.id
-
-        self.config.set_property(ClientProperties.HEARTBEAT_INTERVAL.name, 500)
-        self.config.set_property(ClientProperties.HEARTBEAT_TIMEOUT.name, 2000)
-
-        self.client = HazelcastClient(self.config)
+        self.client = HazelcastClient(cluster_name=self.cluster.id,
+                                      heartbeat_interval=0.5,
+                                      heartbeat_timeout=2)
 
     def tearDown(self):
         self.client.shutdown()

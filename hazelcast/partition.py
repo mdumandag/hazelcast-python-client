@@ -22,10 +22,9 @@ class PartitionService(object):
     """
     logger = logging.getLogger("HazelcastClient.PartitionService")
 
-    def __init__(self, client):
+    def __init__(self, logger_extras):
         self.partition_count = 0
-        self._client = client
-        self._logger_extras = {"client_name": client.name, "cluster_name": client.config.cluster_name}
+        self._logger_extras = logger_extras
         self._partition_table = _PartitionTable(None, -1, dict())
 
     def handle_partitions_view_event(self, connection, partitions, version):
