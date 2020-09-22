@@ -17,9 +17,7 @@ class _PartitionTable(object):
 
 
 class PartitionService(object):
-    """
-    Allows to retrieve information about the partition count, the partition owner or the partitionId of a key.
-    """
+    """Allows to retrieve information about the partition count, the partition owner or the partitionId of a key."""
     logger = logging.getLogger("HazelcastClient.PartitionService")
 
     def __init__(self, logger_extras):
@@ -28,9 +26,6 @@ class PartitionService(object):
         self._partition_table = _PartitionTable(None, -1, dict())
 
     def handle_partitions_view_event(self, connection, partitions, version):
-        """Handles the incoming partition view event and updates the partition table
-        if it is not empty, coming from a new connection or not stale.
-        """
         should_log = self.logger.isEnabledFor(logging.DEBUG)
         if should_log:
             self.logger.debug("Handling new partition table with version: %s" % version,
@@ -45,21 +40,25 @@ class PartitionService(object):
         self._partition_table = new_table
 
     def get_partition_owner(self, partition_id):
-        """
-        Returns the owner of the partition if it's set, None otherwise.
+        """Returns the owner of the partition if it's set, ``None`` otherwise.
 
-        :param partition_id: (int), the partition id.
-        :return: (:class:`~uuid.UUID`), owner of partition
+        Args:
+            partition_id (int): The partition id.
+
+        Returns:
+            uuid.UUID: Owner of partition
         """
         table = self._partition_table
         return table.partitions.get(partition_id, None)
 
     def get_partition_id(self, key):
-        """
-        Returns the partition id for a Data key.
+        """Returns the partition id for a Data key.
 
-        :param key: (object), the data key.
-        :return: (int), the partition id.
+        Args:
+            key (hazelcast.serialization.data.Data): The data key.
+
+        Returns:
+            int: The partition id.
         """
         count = self.partition_count
         if count == 0:
@@ -72,11 +71,6 @@ class PartitionService(object):
         return hash_to_index(key.get_partition_hash(), count)
 
     def check_and_set_partition_count(self, partition_count):
-        """
-        :param partition_count: (int)
-        :return: (bool), True if partition count can be set for the first time,
-            or it is equal to one that is already available, returns False otherwise
-        """
         if self.partition_count == 0:
             self.partition_count = partition_count
             return True
