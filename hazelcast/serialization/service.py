@@ -29,7 +29,10 @@ class SerializationServiceV1(BaseSerializationService):
         self._registry._portable_serializer = PortableSerializer(self._portable_context, config.portable_factories)
 
         # merge configured factories with built in ones
-        factories = {}
+        factories = {-3: {
+            7: Callable,
+            8: EntryProcessor,
+        }}
         factories.update(config.data_serializable_factories)
         self._registry._data_serializer = IdentifiedDataSerializer(factories)
         self._register_constant_serializers()

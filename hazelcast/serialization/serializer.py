@@ -6,7 +6,7 @@ from datetime import datetime
 from hazelcast import six
 from hazelcast.core import HazelcastJsonValue
 from hazelcast.serialization.bits import *
-from hazelcast.serialization.api import StreamSerializer
+from hazelcast.serialization.api import StreamSerializer, IdentifiedDataSerializable
 from hazelcast.serialization.base import HazelcastSerializationError
 from hazelcast.serialization.serialization_const import *
 from hazelcast.six.moves import range, cPickle
@@ -382,3 +382,37 @@ class IdentifiedDataSerializer(BaseSerializer):
 
     def get_type_id(self):
         return CONSTANT_TYPE_DATA_SERIALIZABLE
+
+
+class Callable(IdentifiedDataSerializable):
+    def __init__(self, callable_):
+        self._callable = cPickle.dumps(callable_)
+
+    def write_data(self, object_data_output):
+        object_data_output.write_byte_array(self._callable)
+
+    def read_data(self, object_data_input):
+        self._callable = object_data_input.read_byte_array()
+
+    def get_factory_id(self):
+        return -3
+
+    def get_class_id(self):
+        return 7
+
+
+class EntryProcessor(IdentifiedDataSerializable):
+    def __init__(self, processor):
+        self._processor = cPickle.dumps(processor)
+
+    def write_data(self, object_data_output):
+        object_data_output.write_byte_array(self._processor)
+
+    def read_data(self, object_data_input):
+        self._processor = object_data_input.read_byte_array()
+
+    def get_factory_id(self):
+        return -3
+
+    def get_class_id(self):
+        return 8
