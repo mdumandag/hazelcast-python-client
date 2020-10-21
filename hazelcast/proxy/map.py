@@ -17,6 +17,7 @@ from hazelcast.protocol.codec import map_add_entry_listener_codec, map_add_entry
     map_execute_with_predicate_codec, map_add_near_cache_invalidation_listener_codec, map_add_index_codec, \
     map_set_ttl_codec
 from hazelcast.proxy.base import Proxy, EntryEvent, EntryEventType, get_entry_listener_flags, MAX_SIZE
+from hazelcast.serialization.serializer import EntryProcessor
 from hazelcast.util import check_not_none, thread_id, to_millis, ImmutableLazyDataList
 from hazelcast import six
 
@@ -333,6 +334,7 @@ class Map(Proxy):
             hazelcast.future.Future[list]: List of map entries which includes the keys and the
                 results of the entry process.
         """
+        entry_processor = self._wrap_if_needed(entry_processor)
         if predicate:
             def handler(message):
                 return ImmutableLazyDataList(map_execute_with_predicate_codec.decode_response(message), self._to_object)
@@ -365,6 +367,7 @@ class Map(Proxy):
         """
         check_not_none(key, "key can't be None")
         key_data = self._to_data(key)
+        entry_processor = self._wrap_if_needed(entry_processor)
         return self._execute_on_key_internal(key_data, entry_processor)
 
     def execute_on_keys(self, keys, entry_processor):
@@ -393,6 +396,7 @@ class Map(Proxy):
         def handler(message):
             return ImmutableLazyDataList(map_execute_on_keys_codec.decode_response(message), self._to_object)
 
+        entry_processor = self._wrap_if_needed(entry_processor)
         entry_processor_data = self._to_data(entry_processor)
         request = map_execute_on_keys_codec.encode_request(self.name, entry_processor_data, key_list)
         return self._invoke(request, handler)
@@ -1058,6 +1062,11 @@ class Map(Proxy):
         return self._invoke(request, handler)
 
     # internals
+    def _wrap_if_needed(self, processor):
+        if hasattr(processor, "process") and callable(processor.process):
+            return EntryProcessor(processor)
+        return processor
+
     def _contains_key_internal(self, key_data):
         request = map_contains_key_codec.encode_request(self.name, key_data, thread_id())
         return self._invoke_on_key(request, key_data, map_contains_key_codec.decode_response)

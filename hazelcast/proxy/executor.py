@@ -4,6 +4,7 @@ from hazelcast.protocol.codec import executor_service_shutdown_codec, \
     executor_service_is_shutdown_codec, \
     executor_service_submit_to_partition_codec, executor_service_submit_to_member_codec
 from hazelcast.proxy.base import Proxy
+from hazelcast.serialization.serializer import Callable
 from hazelcast.util import check_not_none
 
 
@@ -22,6 +23,7 @@ class Executor(Proxy):
         """
         check_not_none(key, "key can't be None")
         check_not_none(task, "task can't be None")
+        task = self._wrap_if_needed(task)
 
         def handler(message):
             return self._to_object(executor_service_submit_to_partition_codec.decode_response(message))
@@ -45,6 +47,7 @@ class Executor(Proxy):
           hazelcast.future.Future: Future representing pending completion of the task.
         """
         check_not_none(task, "task can't be None")
+        task = self._wrap_if_needed(task)
         task_data = self._to_data(task)
         uuid = uuid4()
         return self._execute_on_member(uuid, task_data, member.uuid)
@@ -60,6 +63,7 @@ class Executor(Proxy):
           list[hazelcast.future.Future]: Futures representing pending completion of the task on each member.
 
         """
+        task = self._wrap_if_needed(task)
         task_data = self._to_data(task)
         futures = []
         uuid = uuid4()
@@ -104,3 +108,8 @@ class Executor(Proxy):
 
         request = executor_service_submit_to_member_codec.encode_request(self.name, uuid, task_data, member_uuid)
         return self._invoke_on_target(request, member_uuid, handler)
+
+    def _wrap_if_needed(self, callable_):
+        if hasattr(callable_, "call") and callable(callable_.call):
+            return Callable(callable_)
+        return callable_
