@@ -79,6 +79,9 @@ class ListenerService(object):
                 try:
                     server_registration_id = event_registration.server_registration_id
                     deregister_request = listener_registration.encode_deregister_request(server_registration_id)
+                    # None message means no remote registration (e.g. for backup acks)
+                    if deregister_request is None:
+                        continue
                     invocation = Invocation(deregister_request, connection=connection)
                     self._invocation_service.invoke(invocation)
                     invocation.future.result()
