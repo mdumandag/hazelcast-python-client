@@ -235,7 +235,9 @@ class InvocationService(object):
             return
 
         invoke_func = functools.partial(self.invoke, invocation)
+        _logger.critical("adding timer for %s, %s, len before %s" % (invocation, invocation.request, self._reactor._timers.qsize()))
         self._reactor.add_timer(self._invocation_retry_pause, invoke_func)
+        _logger.critical("added. len after %s" % self._reactor._timers.qsize())
 
     def _should_retry(self, invocation, error):
         if invocation.connection and isinstance(error, (IOError, TargetDisconnectedError)):

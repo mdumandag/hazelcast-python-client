@@ -112,10 +112,19 @@ class AsyncoreReactor(object):
             pass
 
     def _cleanup_all_timers(self):
+        import inspect
+        import functools
+        _logger.critical("cleanup")
         while not self._timers.empty():
             try:
                 _, timer = self._timers.get_nowait()
-                timer.timer_ended_cb()
+                cb = timer.timer_ended_cb
+                _logger.critical("timer %s" % cb)
+                if isinstance(cb, functools.partial):
+                    _logger.critical(inspect.getsourcelines(cb.func))
+                else:
+                    _logger.critical(inspect.getsourcelines(timer.timer_ended_cb))
+                cb()
             except queue.Empty:
                 return
 

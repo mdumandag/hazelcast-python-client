@@ -68,6 +68,6 @@ Write-Host Wait for Hazelcast to start ...
 Start-Sleep -s 15
 
 Write-Host Running tests ...
-python -m nose -v --with-xunit --cover-xml --cover-package=hazelcast --cover-inclusive --nologcapture
+python -m nose -v --with-xunit --cover-xml --cover-package=hazelcast --cover-inclusive --nologcapture "tests/shutdown_test.py"
 
 Stop-Process -Force -Id $remoteControllerApp.Id
