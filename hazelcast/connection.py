@@ -15,7 +15,7 @@ from hazelcast.errors import AuthenticationError, TargetDisconnectedError, Hazel
 from hazelcast.future import ImmediateFuture, ImmediateExceptionFuture
 from hazelcast.invocation import Invocation
 from hazelcast.lifecycle import LifecycleState
-from hazelcast.protocol.client_message import SIZE_OF_FRAME_LENGTH_AND_FLAGS, Frame, InboundMessage, \
+from hazelcast.protocol.client_message import SIZE_OF_FRAME_LENGTH_AND_FLAGS, Frame, ClientMessage, \
     ClientMessageBuilder
 from hazelcast.protocol.codec import client_authentication_codec, client_ping_codec
 from hazelcast.util import AtomicInteger, calculate_version, UNKNOWN_VERSION
@@ -528,6 +528,13 @@ class _HeartbeatManager(object):
 _frame_header = struct.Struct('<iH')
 
 
+class _BufferedReader(object):
+    def __init__(self, builder):
+        self._buf = bytearray(128000)
+        self.view = memoryview(self._buf)
+        self.x = 3
+
+
 class _Reader(object):
     def __init__(self, builder):
         self._buf = io.BytesIO()
@@ -579,7 +586,7 @@ class _Reader(object):
         # No need to reset flags since it will be overwritten on the next read_frame_size_and_flags call
         frame = Frame(data, self._frame_flags)
         if not self._message:
-            self._message = InboundMessage(frame)
+            self._message = ClientMessage(frame)
         else:
             self._message.add_frame(frame)
         return True
@@ -635,7 +642,7 @@ class Connection(object):
         if not self.live:
             return False
 
-        self._write(message.buf)
+        self._write(message)
         return True
 
     def close(self, reason, cause):

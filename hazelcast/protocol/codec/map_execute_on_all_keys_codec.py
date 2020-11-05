@@ -1,4 +1,4 @@
-from hazelcast.protocol.client_message import OutboundMessage, REQUEST_HEADER_SIZE, create_initial_buffer
+from hazelcast.protocol.client_message import ClientMessage, REQUEST_HEADER_SIZE, create_initial_frame
 from hazelcast.protocol.builtin import StringCodec
 from hazelcast.protocol.builtin import DataCodec
 from hazelcast.protocol.builtin import EntryListCodec
@@ -12,12 +12,14 @@ _REQUEST_INITIAL_FRAME_SIZE = REQUEST_HEADER_SIZE
 
 
 def encode_request(name, entry_processor):
-    buf = create_initial_buffer(_REQUEST_INITIAL_FRAME_SIZE, _REQUEST_MESSAGE_TYPE)
-    StringCodec.encode(buf, name)
-    DataCodec.encode(buf, entry_processor, True)
-    return OutboundMessage(buf, False)
+    initial_frame = create_initial_frame(_REQUEST_INITIAL_FRAME_SIZE, _REQUEST_MESSAGE_TYPE)
+    message = ClientMessage(initial_frame)
+    message.retryable = False
+    StringCodec.encode(message, name)
+    DataCodec.encode(message, entry_processor)
+    return message
 
 
-def decode_response(msg):
-    msg.next_frame()
-    return EntryListCodec.decode(msg, DataCodec.decode, DataCodec.decode)
+def decode_response(message):
+    message.next_frame()
+    return EntryListCodec.decode(message, DataCodec.decode, DataCodec.decode)

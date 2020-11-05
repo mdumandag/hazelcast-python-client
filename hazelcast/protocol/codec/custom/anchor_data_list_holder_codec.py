@@ -1,5 +1,5 @@
 from hazelcast.protocol.builtin import CodecUtil
-from hazelcast.protocol.client_message import END_FRAME_BUF, END_FINAL_FRAME_BUF, BEGIN_FRAME_BUF
+from hazelcast.protocol.client_message import END_FRAME, BEGIN_FRAME
 from hazelcast.protocol.builtin import ListIntegerCodec
 from hazelcast.protocol import AnchorDataListHolder
 from hazelcast.protocol.builtin import EntryListCodec
@@ -8,19 +8,16 @@ from hazelcast.protocol.builtin import DataCodec
 
 class AnchorDataListHolderCodec(object):
     @staticmethod
-    def encode(buf, anchor_data_list_holder, is_final=False):
-        buf.extend(BEGIN_FRAME_BUF)
-        ListIntegerCodec.encode(buf, anchor_data_list_holder.anchor_page_list)
-        EntryListCodec.encode(buf, anchor_data_list_holder.anchor_data_list, DataCodec.encode, DataCodec.encode)
-        if is_final:
-            buf.extend(END_FINAL_FRAME_BUF)
-        else:
-            buf.extend(END_FRAME_BUF)
+    def encode(message, anchor_data_list_holder):
+        message.add_frame(BEGIN_FRAME.copy())
+        ListIntegerCodec.encode(message, anchor_data_list_holder.anchor_page_list)
+        EntryListCodec.encode(message, anchor_data_list_holder.anchor_data_list, DataCodec.encode, DataCodec.encode)
+        message.add_frame(END_FRAME.copy())
 
     @staticmethod
-    def decode(msg):
-        msg.next_frame()
-        anchor_page_list = ListIntegerCodec.decode(msg)
-        anchor_data_list = EntryListCodec.decode(msg, DataCodec.decode, DataCodec.decode)
-        CodecUtil.fast_forward_to_end_frame(msg)
+    def decode(message):
+        message.next_frame()
+        anchor_page_list = ListIntegerCodec.decode(message)
+        anchor_data_list = EntryListCodec.decode(message, DataCodec.decode, DataCodec.decode)
+        CodecUtil.fast_forward_to_end_frame(message)
         return AnchorDataListHolder(anchor_page_list, anchor_data_list)

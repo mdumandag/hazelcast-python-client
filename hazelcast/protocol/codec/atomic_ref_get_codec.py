@@ -1,4 +1,4 @@
-from hazelcast.protocol.client_message import OutboundMessage, REQUEST_HEADER_SIZE, create_initial_buffer
+from hazelcast.protocol.client_message import ClientMessage, REQUEST_HEADER_SIZE, create_initial_frame
 from hazelcast.protocol.codec.custom.raft_group_id_codec import RaftGroupIdCodec
 from hazelcast.protocol.builtin import StringCodec
 from hazelcast.protocol.builtin import DataCodec
@@ -13,12 +13,14 @@ _REQUEST_INITIAL_FRAME_SIZE = REQUEST_HEADER_SIZE
 
 
 def encode_request(group_id, name):
-    buf = create_initial_buffer(_REQUEST_INITIAL_FRAME_SIZE, _REQUEST_MESSAGE_TYPE)
-    RaftGroupIdCodec.encode(buf, group_id)
-    StringCodec.encode(buf, name, True)
-    return OutboundMessage(buf, True)
+    initial_frame = create_initial_frame(_REQUEST_INITIAL_FRAME_SIZE, _REQUEST_MESSAGE_TYPE)
+    message = ClientMessage(initial_frame)
+    message.retryable = True
+    RaftGroupIdCodec.encode(message, group_id)
+    StringCodec.encode(message, name)
+    return message
 
 
-def decode_response(msg):
-    msg.next_frame()
-    return CodecUtil.decode_nullable(msg, DataCodec.decode)
+def decode_response(message):
+    message.next_frame()
+    return CodecUtil.decode_nullable(message, DataCodec.decode)

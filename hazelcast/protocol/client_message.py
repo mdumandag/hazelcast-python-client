@@ -11,11 +11,7 @@ _RESPONSE_BACKUP_ACKS_OFFSET = _CORRELATION_ID_OFFSET + LONG_SIZE_IN_BYTES
 _PARTITION_ID_OFFSET = _CORRELATION_ID_OFFSET + LONG_SIZE_IN_BYTES
 _FRAGMENTATION_ID_OFFSET = 0
 
-_OUTBOUND_MESSAGE_MESSAGE_TYPE_OFFSET = _MESSAGE_TYPE_OFFSET + SIZE_OF_FRAME_LENGTH_AND_FLAGS
-_OUTBOUND_MESSAGE_CORRELATION_ID_OFFSET = _CORRELATION_ID_OFFSET + SIZE_OF_FRAME_LENGTH_AND_FLAGS
-_OUTBOUND_MESSAGE_PARTITION_ID_OFFSET = _PARTITION_ID_OFFSET + SIZE_OF_FRAME_LENGTH_AND_FLAGS
-
-REQUEST_HEADER_SIZE = _OUTBOUND_MESSAGE_PARTITION_ID_OFFSET + INT_SIZE_IN_BYTES
+REQUEST_HEADER_SIZE = _PARTITION_ID_OFFSET + INT_SIZE_IN_BYTES
 RESPONSE_HEADER_SIZE = _RESPONSE_BACKUP_ACKS_OFFSET + BYTE_SIZE_IN_BYTES
 EVENT_HEADER_SIZE = _PARTITION_ID_OFFSET + INT_SIZE_IN_BYTES
 
@@ -31,81 +27,124 @@ _IS_EVENT_FLAG = 1 << 9
 _IS_BACKUP_AWARE_FLAG = 1 << 8
 _IS_BACKUP_EVENT_FLAG = 1 << 7
 
+_FRAME_HEADER_BUF = bytearray(SIZE_OF_FRAME_LENGTH_AND_FLAGS)
+
 
 # For codecs
-def create_initial_buffer(size, message_type, is_final=False):
-    size += SIZE_OF_FRAME_LENGTH_AND_FLAGS
+def create_initial_frame(size, message_type):
     buf = bytearray(size)
-    LE_INT.pack_into(buf, 0, size)
-    flags = _UNFRAGMENTED_MESSAGE_FLAGS
-    if is_final:
-        flags |= _IS_FINAL_FLAG
-    LE_UINT16.pack_into(buf, INT_SIZE_IN_BYTES, flags)
-    LE_INT.pack_into(buf, _OUTBOUND_MESSAGE_MESSAGE_TYPE_OFFSET, message_type)
-    LE_INT.pack_into(buf, _OUTBOUND_MESSAGE_PARTITION_ID_OFFSET, -1)
-    return buf
+    LE_INT.pack_into(buf, _MESSAGE_TYPE_OFFSET, message_type)
+    LE_INT.pack_into(buf, _PARTITION_ID_OFFSET, -1)
+    frame = Frame(buf, _UNFRAGMENTED_MESSAGE_FLAGS)
+    return frame
 
 
 # For custom codecs
-def create_initial_buffer_custom(size, is_begin_frame=False):
-    size += SIZE_OF_FRAME_LENGTH_AND_FLAGS
-    if is_begin_frame:
-        # Needed for custom codecs that does not have initial frame at first
-        # but requires later due to new fix sized parameters
-        buf = bytearray(size)
-        LE_INT.pack_into(buf, 0, size)
-        LE_UINT16.pack_into(buf, INT_SIZE_IN_BYTES, _BEGIN_DATA_STRUCTURE_FLAG)
-        return buf
-    else:
-        # also add BEGIN_FRAME_BUF
-        buf = bytearray(SIZE_OF_FRAME_LENGTH_AND_FLAGS + size)
-        buf[:SIZE_OF_FRAME_LENGTH_AND_FLAGS] = BEGIN_FRAME_BUF
-        LE_INT.pack_into(buf, SIZE_OF_FRAME_LENGTH_AND_FLAGS, size)
-        # no need to encode flags since buf is initialized with zeros
-        return buf
+def create_initial_frame_custom(size, add_flag=False):
+    buf = bytearray(size)
+    flags = _DEFAULT_FLAGS
+    if add_flag:
+        flags |= _BEGIN_DATA_STRUCTURE_FLAG
+    return Frame(buf, flags)
 
 
-class OutboundMessage(object):
-    __slots__ = ("buf", "retryable")
+class ClientMessage(object):
+    __slots__ = ("start_frame", "end_frame", "retryable", "_next_frame")
 
-    def __init__(self, buf, retryable):
-        self.buf = buf
-        self.retryable = retryable
+    def __init__(self, start_frame):
+        self.start_frame = start_frame
+        self.end_frame = start_frame
+        self._next_frame = start_frame
 
-    def set_correlation_id(self, correlation_id):
-        LE_LONG.pack_into(self.buf, _OUTBOUND_MESSAGE_CORRELATION_ID_OFFSET, correlation_id)
+    def next_frame(self):
+        result = self._next_frame
+        if self._next_frame is not None:
+            self._next_frame = self._next_frame.next
+        return result
+
+    def has_next_frame(self):
+        return self._next_frame is not None
+
+    def peek_next_frame(self):
+        return self._next_frame
+
+    def add_frame(self, frame):
+        frame.next = None
+        self.end_frame.next = frame
+        self.end_frame = frame
+
+    def get_message_type(self):
+        return LE_INT.unpack_from(self.start_frame.buf, _MESSAGE_TYPE_OFFSET)[0]
 
     def get_correlation_id(self):
-        return LE_LONG.unpack_from(self.buf, _OUTBOUND_MESSAGE_CORRELATION_ID_OFFSET)[0]
+        return LE_LONG.unpack_from(self.start_frame.buf, _CORRELATION_ID_OFFSET)[0]
+
+    def set_correlation_id(self, correlation_id):
+        LE_LONG.pack_into(self.start_frame.buf, _CORRELATION_ID_OFFSET, correlation_id)
 
     def set_partition_id(self, partition_id):
-        LE_INT.pack_into(self.buf, _OUTBOUND_MESSAGE_PARTITION_ID_OFFSET, partition_id)
+        LE_INT.pack_into(self.start_frame.buf, _PARTITION_ID_OFFSET, partition_id)
+
+    def get_number_of_backup_acks(self):
+        return LE_UINT8.unpack_from(self.start_frame.buf, _RESPONSE_BACKUP_ACKS_OFFSET)[0]
+
+    def get_fragmentation_id(self):
+        return LE_LONG.unpack_from(self.start_frame.buf, _FRAGMENTATION_ID_OFFSET)[0]
+
+    def merge(self, fragment):
+        # should be called after calling drop_fragmentation_frame() on fragment
+        self.end_frame.next = fragment.start_frame
+        self.end_frame = fragment.end_frame
+
+    def drop_fragmentation_frame(self):
+        self.start_frame = self.start_frame.next
+        self._next_frame = self.start_frame
 
     def copy(self):
-        return OutboundMessage(bytearray(self.buf), self.retryable)
+        message = ClientMessage(self.start_frame.deep_copy())
+        message.end_frame = self.end_frame
+        message.retryable = self.retryable
+        return message
 
     def set_backup_aware_flag(self):
-        flags = LE_UINT16.unpack_from(self.buf, INT_SIZE_IN_BYTES)[0]
-        flags |= _IS_BACKUP_AWARE_FLAG
-        LE_UINT16.pack_into(self.buf, INT_SIZE_IN_BYTES, flags)
+        self.start_frame.flags |= _IS_BACKUP_AWARE_FLAG
+
+    def write_to(self, buf):
+        cur = self.start_frame
+        while cur:
+            b = cur.buf
+            flags = cur.flags
+            if not cur.next:
+                flags |= _IS_FINAL_FLAG
+            LE_INT.pack_into(_FRAME_HEADER_BUF, 0, len(b) + SIZE_OF_FRAME_LENGTH_AND_FLAGS)
+            LE_UINT16.pack_into(_FRAME_HEADER_BUF, 4, flags)
+            buf.write(_FRAME_HEADER_BUF)
+            buf.write(b)
+            cur = cur.next
 
     def __repr__(self):
-        message_type = LE_INT.unpack_from(self.buf, _OUTBOUND_MESSAGE_MESSAGE_TYPE_OFFSET)[0]
+        message_type = self.get_message_type()
         correlation_id = self.get_correlation_id()
-        return "OutboundMessage(message_type=%s, correlation_id=%s, retryable=%s)" \
-               % (message_type, correlation_id, self.retryable)
+        return "OutboundMessage(message_type=%s, correlation_id=%s, retryable=%s, %s)" \
+               % (message_type, correlation_id, self.retryable, self.start_frame.flags)
 
 
 class Frame(object):
     __slots__ = ("buf", "flags", "next")
 
-    def __init__(self, buf, flags):
+    def __init__(self, buf, flags=_DEFAULT_FLAGS):
         self.buf = buf
         self.flags = flags
         self.next = None
 
     def copy(self):
         frame = Frame(self.buf, self.flags)
+        frame.next = self.next
+        return frame
+
+    def deep_copy(self):
+        frame = Frame(self.buf.copy(), self.flags)
+        frame.next = self.next
         return frame
 
     def is_begin_frame(self):
@@ -140,75 +179,9 @@ class Frame(object):
         return i == flag_mask
 
 
-class InboundMessage(object):
-    __slots__ = ("start_frame", "end_frame", "_next_frame")
-
-    def __init__(self, start_frame):
-        self.start_frame = start_frame
-        self.end_frame = start_frame
-        self._next_frame = start_frame
-
-    def next_frame(self):
-        result = self._next_frame
-        if self._next_frame is not None:
-            self._next_frame = self._next_frame.next
-        return result
-
-    def has_next_frame(self):
-        return self._next_frame is not None
-
-    def peek_next_frame(self):
-        return self._next_frame
-
-    def add_frame(self, frame):
-        frame.next = None
-        # For inbound messages, we always had the start_frame and end_frame set
-        self.end_frame.next = frame
-        self.end_frame = frame
-
-    def get_message_type(self):
-        return LE_INT.unpack_from(self.start_frame.buf, _MESSAGE_TYPE_OFFSET)[0]
-
-    def get_correlation_id(self):
-        return LE_LONG.unpack_from(self.start_frame.buf, _CORRELATION_ID_OFFSET)[0]
-
-    def get_fragmentation_id(self):
-        return LE_LONG.unpack_from(self.start_frame.buf, _FRAGMENTATION_ID_OFFSET)[0]
-
-    def get_number_of_backup_acks(self):
-        return LE_UINT8.unpack_from(self.start_frame.buf, _RESPONSE_BACKUP_ACKS_OFFSET)[0]
-
-    def merge(self, fragment):
-        # should be called after calling drop_fragmentation_frame() on fragment
-        self.end_frame.next = fragment.start_frame
-        self.end_frame = fragment.end_frame
-
-    def drop_fragmentation_frame(self):
-        self.start_frame = self.start_frame.next
-        self._next_frame = self.start_frame
-
-
-NULL_FRAME_BUF = bytearray(SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_INT.pack_into(NULL_FRAME_BUF, 0, SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_UINT16.pack_into(NULL_FRAME_BUF, INT_SIZE_IN_BYTES, _IS_NULL_FLAG)
-
-# Has IS_NULL and IS_FINAL flags
-NULL_FINAL_FRAME_BUF = bytearray(SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_INT.pack_into(NULL_FINAL_FRAME_BUF, 0, SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_UINT16.pack_into(NULL_FINAL_FRAME_BUF, INT_SIZE_IN_BYTES, _IS_NULL_FLAG | _IS_FINAL_FLAG)
-
-BEGIN_FRAME_BUF = bytearray(SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_INT.pack_into(BEGIN_FRAME_BUF, 0, SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_UINT16.pack_into(BEGIN_FRAME_BUF, INT_SIZE_IN_BYTES, _BEGIN_DATA_STRUCTURE_FLAG)
-
-END_FRAME_BUF = bytearray(SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_INT.pack_into(END_FRAME_BUF, 0, SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_UINT16.pack_into(END_FRAME_BUF, INT_SIZE_IN_BYTES, _END_DATA_STRUCTURE_FLAG)
-
-# Has END_DATA_STRUCTURE and IS_FINAL flags
-END_FINAL_FRAME_BUF = bytearray(SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_INT.pack_into(END_FINAL_FRAME_BUF, 0, SIZE_OF_FRAME_LENGTH_AND_FLAGS)
-LE_UINT16.pack_into(END_FINAL_FRAME_BUF, INT_SIZE_IN_BYTES, _END_DATA_STRUCTURE_FLAG | _IS_FINAL_FLAG)
+NULL_FRAME = Frame(bytearray(0), _IS_NULL_FLAG)
+BEGIN_FRAME = Frame(bytearray(0), _BEGIN_DATA_STRUCTURE_FLAG)
+END_FRAME = Frame(bytearray(0), _END_DATA_STRUCTURE_FLAG)
 
 
 class ClientMessageBuilder(object):

@@ -1,6 +1,6 @@
 from hazelcast.serialization.bits import *
 from hazelcast.protocol.builtin import FixSizedTypesCodec
-from hazelcast.protocol.client_message import OutboundMessage, REQUEST_HEADER_SIZE, create_initial_buffer, RESPONSE_HEADER_SIZE
+from hazelcast.protocol.client_message import ClientMessage, REQUEST_HEADER_SIZE, create_initial_frame, RESPONSE_HEADER_SIZE
 from hazelcast.protocol.builtin import StringCodec
 
 # hex: 0x1C0100
@@ -16,16 +16,20 @@ _RESPONSE_BATCH_SIZE_OFFSET = _RESPONSE_INCREMENT_OFFSET + LONG_SIZE_IN_BYTES
 
 
 def encode_request(name, batch_size):
-    buf = create_initial_buffer(_REQUEST_INITIAL_FRAME_SIZE, _REQUEST_MESSAGE_TYPE)
+    initial_frame = create_initial_frame(_REQUEST_INITIAL_FRAME_SIZE, _REQUEST_MESSAGE_TYPE)
+    message = ClientMessage(initial_frame)
+    message.retryable = True
+    buf = initial_frame.buf
     FixSizedTypesCodec.encode_int(buf, _REQUEST_BATCH_SIZE_OFFSET, batch_size)
-    StringCodec.encode(buf, name, True)
-    return OutboundMessage(buf, True)
+    StringCodec.encode(message, name)
+    return message
 
 
-def decode_response(msg):
-    initial_frame = msg.next_frame()
+def decode_response(message):
+    initial_frame = message.next_frame()
     response = dict()
-    response["base"] = FixSizedTypesCodec.decode_long(initial_frame.buf, _RESPONSE_BASE_OFFSET)
-    response["increment"] = FixSizedTypesCodec.decode_long(initial_frame.buf, _RESPONSE_INCREMENT_OFFSET)
-    response["batch_size"] = FixSizedTypesCodec.decode_int(initial_frame.buf, _RESPONSE_BATCH_SIZE_OFFSET)
+    buf = initial_frame.buf
+    response["base"] = FixSizedTypesCodec.decode_long(buf, _RESPONSE_BASE_OFFSET)
+    response["increment"] = FixSizedTypesCodec.decode_long(buf, _RESPONSE_INCREMENT_OFFSET)
+    response["batch_size"] = FixSizedTypesCodec.decode_int(buf, _RESPONSE_BATCH_SIZE_OFFSET)
     return response

@@ -1,5 +1,6 @@
 import asyncore
 import errno
+import io
 import logging
 import os
 import select
@@ -395,7 +396,8 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
 
         self.local_address = Address(*self.socket.getsockname())
 
-        self._write_queue.append(b"CP2")
+        self._write_buf = io.BytesIO()
+        self._write_queue.append(QueueItem(b"CP2"))
 
     def handle_connect(self):
         self.start_time = time.time()
@@ -414,17 +416,26 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
             reader.process()
 
     def handle_write(self):
+        buf = self._write_buf
+        buf.seek(0)
         while True:
             try:
-                data = self._write_queue.popleft()
+                message = self._write_queue.popleft()
             except IndexError:
-                return
+                break
 
-            sent = self.send(data)
+            message.write_to(buf)
+            if buf.tell() > _BUFFER_SIZE:
+                break
+
+        if buf.tell():
+            b = buf.getvalue()
+            sent = self.send(b)
             self.last_write_time = time.time()
             self.sent_protocol_bytes = True
-            if sent < len(data):
-                self._write_queue.appendleft(data[sent:])
+            if sent < len(b):
+                self._write_queue.appendleft(QueueItem(b[sent:]))
+            buf.truncate(0)
 
     def handle_close(self):
         _logger.warning("Connection closed by server")
@@ -442,8 +453,8 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
     def readable(self):
         return self.live and self.sent_protocol_bytes
 
-    def _write(self, buf):
-        self._write_queue.append(buf)
+    def _write(self, message):
+        self._write_queue.append(message)
         self._reactor.wake_loop()
 
     def writable(self):
@@ -489,3 +500,13 @@ class Timer(object):
             return True
 
         return False
+
+
+class QueueItem(object):
+    __slots__ = ("_buf", )
+
+    def __init__(self, buf):
+        self._buf = buf
+
+    def write_to(self, buf):
+        buf.write(self._buf)
