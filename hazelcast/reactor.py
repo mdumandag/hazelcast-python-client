@@ -1,5 +1,6 @@
 import asyncore
 import errno
+import io
 import logging
 import os
 import select
@@ -24,7 +25,20 @@ try:
 except ImportError:
     ssl = None
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 _logger = logging.getLogger(__name__)
+
+
+def set_nonblocking(fd):
+    if not fcntl:
+        return
+
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
 
 class _FileWrapper(object):
@@ -60,14 +74,22 @@ class _PipedWaker(_AbstractWaker):
         _AbstractWaker.__init__(self, map)
         self._read_fd, self._write_fd = os.pipe()
         self.set_socket(_FileWrapper(self._read_fd))
+        set_nonblocking(self._read_fd)
+        set_nonblocking(self._write_fd)
 
     def wake(self):
         if not self.awake:
             self.awake = True
-            os.write(self._write_fd, b"x")
+            try:
+                os.write(self._write_fd, b"x")
+            except (IOError, ValueError):
+                pass
 
     def handle_read(self):
-        while len(os.read(self._read_fd, 4096)) == 4096:
+        try:
+            while len(os.read(self._read_fd, 4096)) == 4096:
+                pass
+        except IOError:
             pass
         self.awake = False
 
@@ -99,19 +121,19 @@ class _SocketedWaker(_AbstractWaker):
 
     def wake(self):
         if not self.awake:
+            self.awake = True
             try:
                 self._writer.send(b"x")
-                self.awake = True
-            except:
+            except (IOError, socket.error, ValueError):
                 pass
 
     def handle_read(self):
         try:
-            while len(self._reader.recv(1024)) == 1024:
+            while len(self._reader.recv(4096)) == 4096:
                 pass
-            self.awake = False
-        except:
+        except (IOError, socket.error):
             pass
+        self.awake = False
 
     def close(self):
         _AbstractWaker.close(self)
@@ -395,6 +417,7 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
 
         self.local_address = Address(*self.socket.getsockname())
 
+        self._write_buf = io.BytesIO()
         self._write_queue.append(b"CP2")
 
     def handle_connect(self):
@@ -414,17 +437,26 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
             reader.process()
 
     def handle_write(self):
+        buf = self._write_buf
+        buf.seek(0)
         while True:
             try:
                 data = self._write_queue.popleft()
             except IndexError:
-                return
+                break
 
-            sent = self.send(data)
+            buf.write(data)
+            if buf.tell() > _BUFFER_SIZE:
+                break
+
+        if buf.tell():
+            b = buf.getvalue()
+            sent = self.send(b)
             self.last_write_time = time.time()
             self.sent_protocol_bytes = True
-            if sent < len(data):
-                self._write_queue.appendleft(data[sent:])
+            if sent < len(b):
+                self._write_queue.appendleft(b[sent:])
+            buf.truncate(0)
 
     def handle_close(self):
         _logger.warning("Connection closed by server")

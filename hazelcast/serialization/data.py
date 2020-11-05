@@ -15,8 +15,8 @@ class Data(object):
     It stores binary form of an object serialized by serialization service.
     """
 
-    def __init__(self, buff=None):
-        self._buffer = buff
+    def __init__(self, buf):
+        self._buffer = buf
 
     def to_bytes(self):
         """Returns byte array representation of internal binary format.
@@ -32,7 +32,7 @@ class Data(object):
         Returns:
             int: Serialization type of binary form.
         """
-        if self.total_size() == 0:
+        if len(self._buffer) == 0:
             return CONSTANT_TYPE_NULL
         return BE_INT.unpack_from(self._buffer, TYPE_OFFSET)[0]
 
@@ -42,7 +42,7 @@ class Data(object):
         Returns:
             int: Total size of Data in bytes.
         """
-        return len(self._buffer) if self._buffer is not None else 0
+        return len(self._buffer)
 
     def data_size(self):
         """Returns size of internal binary data in bytes.
@@ -50,7 +50,7 @@ class Data(object):
         Returns:
             int: Size of internal binary data in bytes.
         """
-        return max(self.total_size() - HEAP_DATA_OVERHEAD, 0)
+        return max(len(self._buffer) - HEAP_DATA_OVERHEAD, 0)
 
     def get_partition_hash(self):
         """Returns partition hash calculated for serialized object.
@@ -63,8 +63,9 @@ class Data(object):
         Returns:
             int: Partition hash.
         """
-        if self.has_partition_hash():
-            return BE_INT.unpack_from(self._buffer, PARTITION_HASH_OFFSET)[0]
+        partition_hash = BE_INT.unpack_from(self._buffer, PARTITION_HASH_OFFSET)[0]
+        if partition_hash:
+            return partition_hash
         return self.hash_code()
 
     def is_portable(self):
@@ -74,17 +75,6 @@ class Data(object):
             bool: ``True`` if source object is Portable, ``False`` otherwise.
         """
         return CONSTANT_TYPE_PORTABLE == self.get_type()
-
-    def has_partition_hash(self):
-        """Determines whether this ``Data`` has partition hash or not.
-        
-        Returns:
-            bool: ``True`` if ``Data`` has partition hash, ``False`` otherwise.
-
-        """
-        return self._buffer is not None \
-               and len(self._buffer) >= HEAP_DATA_OVERHEAD \
-               and BE_INT.unpack_from(self._buffer, PARTITION_HASH_OFFSET)[0] != 0
 
     def hash_code(self):
         """Returns the murmur hash of the internal data.
