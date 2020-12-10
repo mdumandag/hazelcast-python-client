@@ -1,9 +1,11 @@
 import asyncore
 import errno
+import io
 import logging
 import os
 import select
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -18,11 +20,6 @@ from hazelcast.connection import Connection
 from hazelcast.core import Address
 from hazelcast.errors import HazelcastError
 from hazelcast.future import Future
-
-try:
-    import ssl
-except ImportError:
-    ssl = None
 
 try:
     import fcntl
@@ -381,50 +378,20 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
 
             self.socket.setsockopt(level, option_name, value)
 
-        self.connect((address.host, address.port))
+        try:
+            self.connect((address.host, address.port))
+        except Exception as e:
+            self._inner_close()
+            raise e
 
-        if ssl and config.ssl_enabled:
-            ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-
-            protocol = config.ssl_protocol
-
-            # Use only the configured protocol
-            try:
-                if protocol != SSLProtocol.SSLv2:
-                    ssl_context.options |= ssl.OP_NO_SSLv2
-                if protocol != SSLProtocol.SSLv3:
-                    ssl_context.options |= ssl.OP_NO_SSLv3
-                if protocol != SSLProtocol.TLSv1:
-                    ssl_context.options |= ssl.OP_NO_TLSv1
-                if protocol != SSLProtocol.TLSv1_1:
-                    ssl_context.options |= ssl.OP_NO_TLSv1_1
-                if protocol != SSLProtocol.TLSv1_2:
-                    ssl_context.options |= ssl.OP_NO_TLSv1_2
-                if protocol != SSLProtocol.TLSv1_3:
-                    ssl_context.options |= ssl.OP_NO_TLSv1_3
-            except AttributeError:
-                pass
-
-            ssl_context.verify_mode = ssl.CERT_REQUIRED
-
-            if config.ssl_cafile:
-                ssl_context.load_verify_locations(config.ssl_cafile)
-            else:
-                ssl_context.load_default_certs()
-
-            if config.ssl_certfile:
-                ssl_context.load_cert_chain(config.ssl_certfile, config.ssl_keyfile, config.ssl_password)
-
-            if config.ssl_ciphers:
-                ssl_context.set_ciphers(config.ssl_ciphers)
-
-            self.socket = ssl_context.wrap_socket(self.socket)
+        self._wrap_as_ssl_socket_if_necessary(config)
 
         # the socket should be non-blocking from now on
         self.socket.settimeout(0)
 
         self.local_address = Address(*self.socket.getsockname())
 
+        self._write_buf = io.BytesIO()
         self._write_queue.append(b"CP2")
 
     def handle_connect(self):
@@ -445,20 +412,36 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
             reader.process()
 
     def handle_write(self):
-        while True:
-            try:
-                data = self._write_queue.popleft()
-            except IndexError:
-                return
+        write_queue = self._write_queue
+        write_batch = []
+        total_length = 0
 
-            sent = self.send(data)
-            self.last_write_time = time.time()
-            self.sent_protocol_bytes = True
-            if sent < len(data):
-                self._write_queue.appendleft(data[sent:])
+        while write_queue:
+            data = write_queue.popleft()
+            write_batch.append(data)
+            total_length += len(data)
 
-            if sent == 0:
-                return
+            if total_length > _BUFFER_SIZE:
+                break
+
+        if len(write_batch) == 1:
+            b = write_batch[0]
+        else:
+            write_buf = self._write_buf
+            write_buf.seek(0)
+            for data in write_batch:
+                write_buf.write(data)
+            b = write_buf.getvalue()
+            write_buf.truncate(0)
+
+        sent = self.send(b)
+        self.last_write_time = time.time()
+        self.sent_protocol_bytes = True
+        if sent < len(b):
+            write_queue.appendleft(b[sent:])
+
+        if sent == 0:
+            return
 
     def handle_close(self):
         _logger.warning("Connection closed by server")
@@ -485,6 +468,46 @@ class AsyncoreConnection(Connection, asyncore.dispatcher):
 
     def _inner_close(self):
         asyncore.dispatcher.close(self)
+
+    def _wrap_as_ssl_socket_if_necessary(self, config):
+        if not config.ssl_enabled:
+            return
+
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+
+        protocol = config.ssl_protocol
+
+        # Use only the configured protocol
+        try:
+            if protocol != SSLProtocol.SSLv2:
+                ssl_context.options |= ssl.OP_NO_SSLv2
+            if protocol != SSLProtocol.SSLv3:
+                ssl_context.options |= ssl.OP_NO_SSLv3
+            if protocol != SSLProtocol.TLSv1:
+                ssl_context.options |= ssl.OP_NO_TLSv1
+            if protocol != SSLProtocol.TLSv1_1:
+                ssl_context.options |= ssl.OP_NO_TLSv1_1
+            if protocol != SSLProtocol.TLSv1_2:
+                ssl_context.options |= ssl.OP_NO_TLSv1_2
+            if protocol != SSLProtocol.TLSv1_3:
+                ssl_context.options |= ssl.OP_NO_TLSv1_3
+        except AttributeError:
+            pass
+
+        ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+        if config.ssl_cafile:
+            ssl_context.load_verify_locations(config.ssl_cafile)
+        else:
+            ssl_context.load_default_certs()
+
+        if config.ssl_certfile:
+            ssl_context.load_cert_chain(config.ssl_certfile, config.ssl_keyfile, config.ssl_password)
+
+        if config.ssl_ciphers:
+            ssl_context.set_ciphers(config.ssl_ciphers)
+
+        self.socket = ssl_context.wrap_socket(self.socket)
 
     def __repr__(self):
         return "Connection(id=%s, live=%s, remote_address=%s)" % (self._id, self.live, self.remote_address)
