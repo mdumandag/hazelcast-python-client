@@ -57,7 +57,7 @@ class _WaitStrategy(object):
         time_passed = now - self._cluster_connect_attempt_begin
         if time_passed > self._cluster_connect_timeout:
             _logger.warning(
-                "Unable to get live cluster connection, cluster connect timeout (%d) is reached. "
+                "Unable to get live cluster connection, cluster connect timeout (%ds) is reached. "
                 "Attempt %d.",
                 self._cluster_connect_timeout,
                 self._attempt,
@@ -70,7 +70,7 @@ class _WaitStrategy(object):
         )
         sleep_time = min(sleep_time, self._cluster_connect_timeout - time_passed)
         _logger.warning(
-            "Unable to get live cluster connection, retry in %ds, attempt: %d, "
+            "Unable to get live cluster connection, retry in %.2fs, attempt: %d, "
             "cluster connect timeout: %ds, max backoff: %ds",
             sleep_time,
             self._attempt,
@@ -280,11 +280,18 @@ class ConnectionManager(object):
             self._start_connect_to_cluster_thread()
 
     def _init_wait_strategy(self, config):
+        cluster_connect_timeout = config.cluster_connect_timeout
+        if cluster_connect_timeout == -1:
+            # If the no timeout is specified by the
+            # user, or set to -1 explicitly, set
+            # the timeout to infinite.
+            cluster_connect_timeout = six.MAXSIZE
+
         return _WaitStrategy(
             config.retry_initial_backoff,
             config.retry_max_backoff,
             config.retry_multiplier,
-            config.cluster_connect_timeout,
+            cluster_connect_timeout,
             config.retry_jitter,
         )
 
